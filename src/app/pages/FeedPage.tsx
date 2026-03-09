@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { PostCard } from "../components/PostCard";
 import { mockStoriesUsers, currentUser } from "../mockData";
-import { getFeedQuotes } from "../services/feedService";
+import { getFeedQuotes } from "../../services/feedService";
 
 const CATS = [
   { id: "top", label: "🔥 Top" },
