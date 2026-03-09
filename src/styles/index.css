@@ -1,0 +1,113 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+/* ── Base font stack — covers all 9 supported Indian languages ── */
+:root {
+  --font-body: 'Nunito', 'Noto Sans Devanagari', 'Noto Sans Bengali',
+    'Noto Sans Telugu', 'Noto Sans Tamil', 'Noto Sans Kannada',
+    'Noto Sans Odia', 'Noto Sans Gurmukhi', sans-serif;
+
+  /* Sphere brand colours */
+  --sphere-blue:       #1D4ED8;
+  --sphere-blue-light: #EFF6FF;
+  --sphere-blue-mid:   #DBEAFE;
+  --sphere-org-black:  #111827;
+  --sphere-bg:         #F9FAFB;
+  --sphere-border:     #F3F4F6;
+  --sphere-text:       #111827;
+  --sphere-muted:      #6B7280;
+
+  /* Anon gradients — 12 presets (index 0-11) */
+  --grad-0:  linear-gradient(135deg,#1D4ED8,#06B6D4);
+  --grad-1:  linear-gradient(135deg,#F97316,#EF4444);
+  --grad-2:  linear-gradient(135deg,#16A34A,#059669);
+  --grad-3:  linear-gradient(135deg,#7C3AED,#DB2777);
+  --grad-4:  linear-gradient(135deg,#D97706,#F59E0B);
+  --grad-5:  linear-gradient(135deg,#1E1B4B,#4338CA);
+  --grad-6:  linear-gradient(135deg,#BE185D,#9333EA);
+  --grad-7:  linear-gradient(135deg,#0F766E,#0D9488);
+  --grad-8:  linear-gradient(135deg,#B91C1C,#D97706);
+  --grad-9:  linear-gradient(135deg,#0EA5E9,#38BDF8);
+  --grad-10: linear-gradient(135deg,#374151,#6B7280);
+  --grad-11: linear-gradient(135deg,#EC4899,#F43F5E);
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--sphere-bg);
+  color: var(--sphere-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar hide ── */
+.scrollbar-hide { -ms-overflow-style:none; scrollbar-width:none; }
+.scrollbar-hide::-webkit-scrollbar { display:none; }
+
+/* ── Tap highlight ── */
+* { -webkit-tap-highlight-color: transparent; }
+
+/* ── Smooth transitions for interactive elements ── */
+button, a { transition: all 0.15s ease; }
+
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 0.5rem;
+}
+
+/* ── Sphere logo font ── */
+.font-sphere { font-family: 'Pacifico', cursive; }
+
+/* ── Anon gradient backgrounds ── */
+.anon-grad-0  { background: var(--grad-0); }
+.anon-grad-1  { background: var(--grad-1); }
+.anon-grad-2  { background: var(--grad-2); }
+.anon-grad-3  { background: var(--grad-3); }
+.anon-grad-4  { background: var(--grad-4); }
+.anon-grad-5  { background: var(--grad-5); }
+.anon-grad-6  { background: var(--grad-6); }
+.anon-grad-7  { background: var(--grad-7); }
+.anon-grad-8  { background: var(--grad-8); }
+.anon-grad-9  { background: var(--grad-9); }
+.anon-grad-10 { background: var(--grad-10); }
+.anon-grad-11 { background: var(--grad-11); }
+
+/* ── PIN dot animations ── */
+@keyframes pin-shake {
+  0%,100% { transform: translateX(0); }
+  20%      { transform: translateX(-8px); }
+  40%      { transform: translateX(8px); }
+  60%      { transform: translateX(-6px); }
+  80%      { transform: translateX(6px); }
+}
+.pin-shake { animation: pin-shake 0.4s ease; }
+
+/* ── Page enter animation ── */
+@keyframes page-enter {
+  from { opacity:0; transform:translateY(8px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+.page-enter { animation: page-enter 0.25s ease forwards; }
+
+/* ── Bottom sheet slide ── */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.sheet-up { animation: sheet-up 0.3s cubic-bezier(0.32,0.72,0,1) forwards; }
+
+/* ── Story ring gradients ── */
+.story-ring {
+  background: linear-gradient(135deg, #14B8A6, #06B6D4, #818CF8);
+  padding: 2.5px;
+  border-radius: 9999px;
+}
+.story-ring-seen { background: #D1D5DB; }
