@@ -71,7 +71,7 @@ function StoriesBar() {
           </span>
         </div>
 
-        {/* User Statuses */}
+        {/* User Status */}
         {mockStoriesUsers.map((s: any) => (
           <div
             key={s.id}
@@ -113,12 +113,22 @@ export function FeedPage() {
   /* Load feed from Supabase */
   useEffect(() => {
     async function loadFeed() {
-      setLoading(true);
+      try {
+        setLoading(true);
 
-      const data = await getFeedQuotes();
+        const data = await getFeedQuotes();
 
-      setPosts(data || []);
-      setLoading(false);
+        if (data) {
+          setPosts(data);
+        } else {
+          setPosts([]);
+        }
+
+      } catch (err) {
+        console.error("Feed load error:", err);
+      } finally {
+        setLoading(false);
+      }
     }
 
     loadFeed();
@@ -202,10 +212,7 @@ export function FeedPage() {
             ))}
 
             {/* Infinite scroll loader */}
-            <div
-              ref={bottomRef}
-              className="py-4 flex justify-center"
-            >
+            <div ref={bottomRef} className="py-4 flex justify-center">
               {loadingMore && (
                 <Loader2
                   size={20}
