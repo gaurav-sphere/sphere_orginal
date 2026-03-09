@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { PostCard } from "../components/PostCard";
-import { mockPosts, mockStoriesUsers, currentUser } from "../mockData";
+import { mockStoriesUsers, currentUser } from "../mockData";
+import { getFeedQuotes } from "../services/feedService";
 
 const CATS = [
   { id: "top", label: "🔥 Top" },
@@ -14,7 +15,7 @@ const CATS = [
   { id: "world", label: "🌍 World" },
 ];
 
-/* ── Skeleton ── */
+/* ── Skeleton Loader ── */
 function PostSkeleton() {
   return (
     <div className="bg-white border-b border-gray-100 px-4 py-3">
@@ -38,14 +39,15 @@ function PostSkeleton() {
   );
 }
 
-/* ── Stories bar ── */
+/* ── Stories Bar ── */
 function StoriesBar() {
   const navigate = useNavigate();
 
   return (
     <div className="bg-white border-b border-gray-100 px-4 py-3">
       <div className="flex gap-4 overflow-x-auto scrollbar-hide">
-        {/* Add story */}
+
+        {/* Add Status */}
         <div
           className="flex flex-col items-center gap-1 shrink-0"
           onClick={() => navigate("/status")}
@@ -63,10 +65,13 @@ function StoriesBar() {
               <span className="text-white text-xs font-bold">+</span>
             </div>
           </div>
-          <span className="text-[10px] text-gray-500 font-medium">Add</span>
+
+          <span className="text-[10px] text-gray-500 font-medium">
+            Add
+          </span>
         </div>
 
-        {/* Stories */}
+        {/* User Statuses */}
         {mockStoriesUsers.map((s: any) => (
           <div
             key={s.id}
@@ -96,23 +101,35 @@ function StoriesBar() {
 }
 
 export function FeedPage() {
+
   const [activeCategory, setActiveCategory] = useState("top");
+  const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [visibleCount, setVisibleCount] = useState(10);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  /* Reset feed when category changes */
+  /* Load feed from Supabase */
   useEffect(() => {
-    setLoading(true);
-    setVisibleCount(10);
+    async function loadFeed() {
+      setLoading(true);
 
-    const t = setTimeout(() => setLoading(false), 700);
-    return () => clearTimeout(t);
+      const data = await getFeedQuotes();
+
+      setPosts(data || []);
+      setLoading(false);
+    }
+
+    loadFeed();
+  }, []);
+
+  /* Reset visible posts when category changes */
+  useEffect(() => {
+    setVisibleCount(10);
   }, [activeCategory]);
 
-  /* Infinite scroll */
+  /* Infinite Scroll */
   useEffect(() => {
     if (loading) return;
 
@@ -135,16 +152,19 @@ export function FeedPage() {
     return () => observer.disconnect();
   }, [loading, loadingMore]);
 
-  const posts =
+  /* Category filter */
+  const filteredPosts =
     activeCategory === "top"
-      ? mockPosts
-      : mockPosts.filter(
+      ? posts
+      : posts.filter(
           (p: any) => p.category?.toLowerCase() === activeCategory
         );
 
   return (
     <AppShell>
+
       <div className="page-enter mt-14 lg:mt-0">
+
         {/* Category Tabs */}
         <div className="bg-white border-b border-gray-100 sticky top-14 lg:top-0 z-20">
           <div className="flex overflow-x-auto scrollbar-hide px-2 py-1 gap-1">
@@ -167,10 +187,12 @@ export function FeedPage() {
         <StoriesBar />
 
         {loading ? (
-          Array.from({ length: 6 }).map((_, i) => <PostSkeleton key={i} />)
+          Array.from({ length: 6 }).map((_, i) => (
+            <PostSkeleton key={i} />
+          ))
         ) : (
           <>
-            {posts.slice(0, visibleCount).map((post: any) => (
+            {filteredPosts.slice(0, visibleCount).map((post: any) => (
               <PostCard
                 key={post.id}
                 post={post}
@@ -180,14 +202,22 @@ export function FeedPage() {
             ))}
 
             {/* Infinite scroll loader */}
-            <div ref={bottomRef} className="py-4 flex justify-center">
+            <div
+              ref={bottomRef}
+              className="py-4 flex justify-center"
+            >
               {loadingMore && (
-                <Loader2 size={20} className="animate-spin text-blue-400" />
+                <Loader2
+                  size={20}
+                  className="animate-spin text-blue-400"
+                />
               )}
             </div>
           </>
         )}
+
       </div>
+
     </AppShell>
   );
 }
