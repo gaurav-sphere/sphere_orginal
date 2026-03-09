@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { PostCard } from "../components/PostCard";
-import { mockStoriesUsers, currentUser } from "../mockData";
+import { mockStoriesUsers, currentUser } from "../data/mockData";
 import { getFeedQuotes } from "../../services/feedService";
 
 const CATS = [
