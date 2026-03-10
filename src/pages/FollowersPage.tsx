@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, Search } from "lucide-react";
-import { mockUsers } from "../mockData";
+import { mockUsers } from "../data/mockData";
 
 export function FollowersPage() {
   const navigate = useNavigate();

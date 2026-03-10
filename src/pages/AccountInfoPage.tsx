@@ -2,7 +2,7 @@ import React from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft } from "lucide-react";
 import { AppShell } from "../components/AppShell";
-import { currentUser } from "../mockData";
+import { currentUser } from "../data/mockData";
 
 const user = currentUser as any;
 

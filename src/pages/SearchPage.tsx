@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { Search, X, TrendingUp } from "lucide-react";
 import { GuestShell } from "../components/GuestShell";
 import { PostCard } from "../components/PostCard";
-import { mockPosts, trendingHashtags } from "../mockData";
+import { mockPosts, trendingHashtags } from "../data/mockData";
 import { LoginGateSheet } from "../components/LoginGateSheet";
 
 export function SearchPage() {

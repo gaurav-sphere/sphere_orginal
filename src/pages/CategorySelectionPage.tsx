@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router";
 import { Check, ChevronRight } from "lucide-react";
-import { suggestedCategories } from "../mockData";
-import { useGuest } from "../../contexts/GuestContext";
+import { suggestedCategories } from "../data/mockData";
+import { useGuest } from "../contexts/GuestContext";
 
 const LANGS = [
   { id:"en", label:"English", script:"Aa" },

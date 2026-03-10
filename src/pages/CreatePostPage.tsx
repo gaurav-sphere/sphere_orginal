@@ -2,143 +2,102 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
 import {
   ArrowLeft, Image, Video, X, Shield, User, Hash,
-  ChevronDown, AlertCircle, Loader2, Check,
+  ChevronDown, Loader2, Check,
 } from "lucide-react";
-import { AppShell } from "../components/AppShell";
-import { currentUser } from "../mockData";
+import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../lib/supabase";
 
-/* ── Anon PIN Modal ─────────────────────────────────────────────────────────── */
+/* ── Anon PIN Modal ────────────────────────────────────────────────────────── */
 function AnonPinModal({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState("");
-  const [shaking, setShaking] = useState(false);
+  const [pin, setPin]       = useState("");
+  const [error, setError]   = useState("");
+  const [shaking, setShake] = useState(false);
   const [attempts, setAttempts] = useState(0);
   const [locked, setLocked] = useState(false);
   const [lockTimer, setLockTimer] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setTimeout(() => inputRef.current?.focus(), 100);
-  }, []);
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100); }, []);
 
   useEffect(() => {
     if (!locked) return;
-    const interval = setInterval(() => {
-      setLockTimer(t => {
-        if (t <= 1) { setLocked(false); clearInterval(interval); return 0; }
-        return t - 1;
-      });
+    const iv = setInterval(() => {
+      setLockTimer(t => { if (t <= 1) { setLocked(false); clearInterval(iv); return 0; } return t - 1; });
     }, 1000);
-    return () => clearInterval(interval);
+    return () => clearInterval(iv);
   }, [locked]);
 
   const handlePin = (newPin: string) => {
     if (locked) return;
-    setPin(newPin);
-    setError("");
+    setPin(newPin); setError("");
     if (newPin.length === 4) {
-      // In production: call /verify-anon-pin Edge Function
-      // For demo: PIN = "1234"
-      if (newPin === "1234") {
-        onSuccess();
-      } else {
-        const newAttempts = attempts + 1;
-        setAttempts(newAttempts);
-        setShaking(true);
-        setError(newAttempts >= 4 ? "Too many attempts" : `Incorrect PIN — ${5 - newAttempts} attempts left`);
-        setTimeout(() => { setShaking(false); setPin(""); }, 500);
-        if (newAttempts >= 5) {
-          setLocked(true);
-          setLockTimer(1800); // 30 min
-          setError("Too many wrong attempts. Locked for 30 minutes.");
-        }
-      }
+      if (newPin === "1234") { onSuccess(); return; }
+      const na = attempts + 1;
+      setAttempts(na); setShake(true);
+      setError(na >= 5 ? "Too many attempts" : `Incorrect PIN — ${5 - na} attempts left`);
+      setTimeout(() => { setShake(false); setPin(""); }, 500);
+      if (na >= 5) { setLocked(true); setLockTimer(1800); }
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative w-full max-w-sm mx-auto bg-white rounded-t-3xl lg:rounded-3xl p-7 shadow-2xl sheet-up">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gray-900 flex items-center justify-center">
-            <Shield size={28} className="text-white" />
+      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
+      <div className="relative w-full max-w-sm mx-auto bg-white rounded-t-3xl lg:rounded-3xl p-6 shadow-2xl sheet-up">
+        <div className="flex justify-center mb-1">
+          <div className="w-12 h-12 rounded-2xl bg-gray-900 flex items-center justify-center">
+            <Shield size={22} className="text-gray-300" />
           </div>
-          <div className="text-center">
-            <h2 className="text-lg font-bold text-gray-900">Enter Anon PIN</h2>
-            <p className="text-sm text-gray-500 mt-1">Confirm your 4-digit PIN to post anonymously</p>
-          </div>
-
-          {/* PIN dots */}
-          <div className={`flex gap-4 mt-2 ${shaking ? "pin-shake" : ""}`} onClick={() => inputRef.current?.focus()}>
-            {[0,1,2,3].map((i) => (
-              <div key={i} className={`w-14 h-14 rounded-full border-2 flex items-center justify-center transition-all cursor-pointer ${
-                pin[i] ? "bg-gray-900 border-gray-900" : "bg-gray-100 border-gray-300"
-              }`}>
-                {pin[i] && <div className="w-3.5 h-3.5 rounded-full bg-white" />}
-              </div>
-            ))}
-          </div>
-
-          {/* Hidden real input */}
-          <input
-            ref={inputRef}
-            type="tel" inputMode="numeric" pattern="[0-9]*" maxLength={4}
-            value={pin} onChange={(e) => handlePin(e.target.value.replace(/\D/g,"").slice(0,4))}
-            disabled={locked}
-            className="absolute opacity-0 w-0 h-0 pointer-events-none"
-          />
-
-          {error && (
-            <div className="flex items-center gap-2 text-red-500 text-sm font-medium">
-              <AlertCircle size={14} />{error}
-            </div>
-          )}
-          {locked && (
-            <p className="text-xs text-gray-400">
-              Try again in {Math.floor(lockTimer/60)}:{String(lockTimer%60).padStart(2,"0")}
-            </p>
-          )}
-
-          <button onClick={onCancel} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Cancel</button>
-          <button className="text-xs text-blue-600 hover:text-blue-700 font-semibold">Forgot PIN? → Settings</button>
         </div>
+        <h3 className="text-lg font-bold text-gray-900 text-center mb-1">Anonymous Mode</h3>
+        <p className="text-sm text-gray-500 text-center mb-5">Enter your 4-digit PIN to post anonymously</p>
+        <div className={`flex gap-3 justify-center mb-4 ${shaking ? "pin-shake" : ""}`}>
+          {[0,1,2,3].map(i => (
+            <div key={i} className={`w-12 h-12 rounded-xl border-2 flex items-center justify-center text-xl font-bold transition-all ${
+              pin.length > i ? "border-gray-900 bg-gray-900 text-white" : "border-gray-200 text-transparent"
+            }`}>
+              {pin.length > i ? "•" : "0"}
+            </div>
+          ))}
+        </div>
+        {error && <p className="text-center text-xs text-red-500 font-medium mb-3">{error}</p>}
+        {locked && <p className="text-center text-xs text-orange-500 font-bold mb-3">Try again in {lockTimer}s</p>}
+        <input ref={inputRef} type="tel" inputMode="numeric" pattern="[0-9]*" maxLength={4}
+          value={pin} onChange={e => handlePin(e.target.value.replace(/\D/g,""))}
+          className="absolute opacity-0 w-0 h-0" readOnly={locked} />
+        <div className="grid grid-cols-3 gap-3">
+          {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k,i) => (
+            <button key={i} disabled={locked || typeof k === "string" && k === ""}
+              onClick={() => {
+                if (k === "⌫") handlePin(pin.slice(0,-1));
+                else if (k !== "") handlePin(pin + String(k));
+              }}
+              className={`h-12 rounded-xl text-lg font-bold transition-all ${
+                k === "" ? "pointer-events-none" :
+                k === "⌫" ? "bg-gray-100 text-gray-600 active:bg-gray-200" :
+                "bg-gray-50 text-gray-900 hover:bg-gray-100 active:bg-gray-200"
+              } ${locked ? "opacity-40" : ""}`}>
+              {k}
+            </button>
+          ))}
+        </div>
+        <button onClick={onCancel} className="mt-4 w-full py-2.5 text-sm text-gray-500 font-semibold">Cancel</button>
       </div>
     </div>
   );
 }
 
-/* ── Attachment thumbnail ── */
-function AttachThumb({
-  item, idx, onRemove, progress
-}: {
-  item: { type: "image"|"video"; url: string; file: File; duration?: number };
-  idx: number; onRemove: () => void; progress?: number;
-}) {
+/* ── Attachment thumbnail ─────────────────────────────────────────────────── */
+function AttachThumb({ item, idx, onRemove }: { item: { type: string; url: string }; idx: number; onRemove: () => void }) {
   return (
     <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-gray-100 shrink-0">
-      <img src={item.url} alt="" className="w-full h-full object-cover" />
-      {item.type === "video" && (
-        <div className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.5 rounded font-medium">
-          {item.duration ? `${Math.floor(item.duration / 60)}:${String(Math.round(item.duration % 60)).padStart(2,"0")}` : "VIDEO"}
-        </div>
+      {item.type === "video" ? (
+        <video src={item.url} className="w-full h-full object-cover" />
+      ) : (
+        <img src={item.url} alt="" className="w-full h-full object-cover" />
       )}
-      {typeof progress === "number" && progress < 100 && (
-        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-          <svg className="w-8 h-8 -rotate-90" viewBox="0 0 36 36">
-            <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="3" />
-            <circle cx="18" cy="18" r="14" fill="none" stroke="white" strokeWidth="3"
-              strokeDasharray={`${2 * Math.PI * 14}`}
-              strokeDashoffset={`${2 * Math.PI * 14 * (1 - progress / 100)}`}
-              strokeLinecap="round" className="transition-all duration-300" />
-          </svg>
-          <span className="absolute text-white text-[10px] font-bold">{progress}%</span>
-        </div>
-      )}
-      <button
-        onClick={onRemove}
-        className="absolute -top-1 -right-1 w-5 h-5 bg-gray-900 rounded-full flex items-center justify-center hover:bg-red-500 transition-colors z-10"
-      >
+      <button onClick={onRemove}
+        className="absolute -top-1 -right-1 w-5 h-5 bg-gray-900 rounded-full flex items-center justify-center hover:bg-red-500 transition-colors z-10">
         <X size={10} className="text-white" />
       </button>
     </div>
@@ -146,29 +105,37 @@ function AttachThumb({
 }
 
 /* ── Categories ── */
-const POST_CATS = ["Technology","Cricket","Sports","Bollywood","Entertainment","Science","Politics","City","Music","Travel","Food","Gaming","Finance"];
+const POST_CATS = [
+  { id: "top",           label: "🔥 Top" },
+  { id: "city",          label: "🏙️ City" },
+  { id: "sports",        label: "🏏 Sports" },
+  { id: "science",       label: "🔬 Science" },
+  { id: "entertainment", label: "🎬 Entertainment" },
+  { id: "world",         label: "🌍 World" },
+];
 
 /* ════════════════════════════════════════════════════════════════════════════ */
 export function CreatePostPage() {
   const navigate = useNavigate();
-  const [isAnon, setIsAnon] = useState(false);
+  const { user, profile } = useAuth();
+
+  const [isAnon, setIsAnon]       = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
-  const [pinVerified, setPinVerified] = useState(false);
-  const [content, setContent] = useState("");
-  const [category, setCategory] = useState("");
-  const [allowThoughts, setAllowThoughts] = useState(true);
-  const [attachments, setAttachments] = useState<Array<{ type: "image"|"video"; url: string; file: File; duration?: number }>>([]);
-  const [posting, setPosting] = useState(false);
-  const [posted, setPosted] = useState(false);
-  const [draftsaved, setDraftSaved] = useState(false);
-  const textRef = useRef<HTMLTextAreaElement>(null);
+  const [pinVerified, setPinVerified]  = useState(false);
+  const [content, setContent]     = useState("");
+  const [category, setCategory]   = useState("top");
+  const [attachments, setAttachments] = useState<Array<{type:"image"|"video"; url: string; file: File}>>([]);
+  const [posting, setPosting]     = useState(false);
+  const [posted, setPosted]       = useState(false);
+  const [error, setError]         = useState("");
+  const [draftSaved, setDraftSaved] = useState(false);
+  const textRef  = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  const user = currentUser as any;
-  const MAX_ATTACHMENTS = 10;
   const charLeft = 500 - content.length;
+  const canPost  = (content.trim().length > 0 || attachments.length > 0) && charLeft >= 0;
 
   /* ── Draft auto-save ── */
   useEffect(() => {
@@ -182,17 +149,13 @@ export function CreatePostPage() {
     return () => clearTimeout(draftTimer.current);
   }, [content, category, isAnon]);
 
-  /* ── Load draft on mount ── */
+  /* ── Restore draft ── */
   useEffect(() => {
     const raw = localStorage.getItem("sphere_draft");
     if (raw) {
       try {
-        const draft = JSON.parse(raw);
-        const age = Date.now() - draft.ts;
-        if (age < 86400000) { // 24 hours
-          setContent(draft.content || "");
-          setCategory(draft.category || "");
-        }
+        const d = JSON.parse(raw);
+        if (Date.now() - d.ts < 86400000) { setContent(d.content || ""); setCategory(d.category || "top"); }
       } catch {}
     }
     textRef.current?.focus();
@@ -200,136 +163,178 @@ export function CreatePostPage() {
 
   /* ── Toggle anon ── */
   const toggleAnon = () => {
-    if (!isAnon) {
-      if (!pinVerified) { setShowPinModal(true); return; }
-      setIsAnon(true);
-    } else {
-      setIsAnon(false);
-    }
-  };
-
-  const onPinSuccess = () => {
-    setShowPinModal(false);
-    setPinVerified(true);
-    setIsAnon(true);
+    if (!isAnon) { if (!pinVerified) { setShowPinModal(true); return; } setIsAnon(true); }
+    else setIsAnon(false);
   };
 
   /* ── File handlers ── */
   const addImages = (files: FileList) => {
-    const remaining = MAX_ATTACHMENTS - attachments.length;
-    Array.from(files).slice(0, remaining).forEach((file) => {
+    const remaining = 10 - attachments.length;
+    Array.from(files).slice(0, remaining).forEach(file => {
       if (!file.type.startsWith("image/")) return;
-      if (file.size > 10 * 1024 * 1024) { alert(`${file.name} exceeds 10MB limit`); return; }
-      const url = URL.createObjectURL(file);
-      setAttachments(prev => [...prev, { type: "image", url, file }]);
+      if (file.size > 10 * 1024 * 1024) { alert(`${file.name} exceeds 10MB`); return; }
+      setAttachments(prev => [...prev, { type: "image", url: URL.createObjectURL(file), file }]);
     });
   };
 
   const addVideo = (file: File) => {
     if (!file.type.startsWith("video/")) return;
-    if (file.size > 500 * 1024 * 1024) { alert("Video exceeds 500MB limit"); return; }
+    if (file.size > 500 * 1024 * 1024) { alert("Video exceeds 500MB"); return; }
     const url = URL.createObjectURL(file);
     const vid = document.createElement("video");
     vid.preload = "metadata";
     vid.onloadedmetadata = () => {
       if (vid.duration > 1200) { alert("Video must be under 20 minutes"); URL.revokeObjectURL(url); return; }
-      if (vid.duration < 3) { alert("Video must be at least 3 seconds"); URL.revokeObjectURL(url); return; }
-      setAttachments(prev => [...prev, { type: "video", url, file, duration: vid.duration }]);
+      setAttachments(prev => [...prev, { type: "video", url, file }]);
     };
     vid.src = url;
   };
 
   const removeAttachment = (idx: number) => {
-    setAttachments(prev => {
-      URL.revokeObjectURL(prev[idx].url);
-      return prev.filter((_, i) => i !== idx);
-    });
+    setAttachments(prev => { URL.revokeObjectURL(prev[idx].url); return prev.filter((_, i) => i !== idx); });
   };
 
-  /* ── Hashtag detection ── */
-  const extractedTags = [...content.matchAll(/#(\w+)/gu)].map(m => m[0]);
+  /* ── Upload a single file to Supabase Storage ── */
+  const uploadFile = async (file: File, postId: string, idx: number): Promise<string | null> => {
+    const ext  = file.name.split(".").pop() || "bin";
+    const path = `${user!.id}/${postId}/${idx}.${ext}`;
+    const { error } = await supabase.storage.from("posts").upload(path, file, { upsert: true });
+    if (error) { console.error("Upload error:", error); return null; }
+    const { data } = supabase.storage.from("posts").getPublicUrl(path);
+    return data.publicUrl;
+  };
 
-  /* ── Post ── */
+  /* ── Submit post to Supabase ── */
   const handlePost = async () => {
-    if (!content.trim() && attachments.length === 0) return;
+    if (!canPost || !user?.id) return;
     setPosting(true);
-    // In production: upload attachments to Supabase Storage, then insert post
-    await new Promise(r => setTimeout(r, 1200));
-    localStorage.removeItem("sphere_draft");
-    setPosted(true);
-    setTimeout(() => navigate("/feed"), 800);
+    setError("");
+
+    try {
+      // Extract hashtags from content
+      const hashtags = [...new Set([...content.matchAll(/#(\w+)/gu)].map(m => m[1].toLowerCase()))];
+
+      // Insert the post row first (to get its ID for media paths)
+      const { data: postRow, error: postErr } = await supabase
+        .from("posts")
+        .insert({
+          user_id:   user.id,
+          body:      content.trim(),
+          category:  category || "top",
+          is_anon:   isAnon,
+          hashtags:  hashtags,
+          is_forward: false,
+        })
+        .select("id")
+        .single();
+
+      if (postErr || !postRow) {
+        console.error("Post insert error:", postErr);
+        setError("Failed to create post. Please try again.");
+        setPosting(false);
+        return;
+      }
+
+      const postId = postRow.id;
+
+      // Upload media attachments
+      if (attachments.length > 0) {
+        const uploadPromises = attachments.map((att, idx) => uploadFile(att.file, postId, idx));
+        const urls = await Promise.all(uploadPromises);
+
+        const mediaRows = urls
+          .map((url, idx) => url ? {
+            post_id:    postId,
+            url:        url,
+            media_type: attachments[idx].type,
+            position:   idx,
+          } : null)
+          .filter(Boolean);
+
+        if (mediaRows.length > 0) {
+          await supabase.from("post_media").insert(mediaRows);
+        }
+      }
+
+      // Done!
+      localStorage.removeItem("sphere_draft");
+      setPosted(true);
+      setTimeout(() => navigate("/feed"), 800);
+
+    } catch (err) {
+      console.error("Unexpected error:", err);
+      setError("Something went wrong. Please try again.");
+      setPosting(false);
+    }
   };
 
-  const canPost = (content.trim().length > 0 || attachments.length > 0) && charLeft >= 0;
-
-  const authorName = isAnon ? (user?.anonUsername || "Anonymous") : (user?.name || "You");
-  const authorAvatar = isAnon ? null : user?.avatar;
+  const extractedTags = [...content.matchAll(/#(\w+)/gu)].map(m => m[0]);
+  const displayName   = isAnon ? (profile?.username ? `@anon_${profile.username}` : "Anonymous") : (profile?.name || "You");
+  const displayAvatar = isAnon ? null : profile?.avatar_url;
 
   return (
     <>
       <div className="min-h-screen bg-white flex flex-col">
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-20">
-          <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors">
+          <button onClick={() => navigate(-1)}
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors">
             <ArrowLeft size={20} className="text-gray-700" />
           </button>
-          <h1 className="font-bold text-gray-900 text-base">Create Quote</h1>
           <div className="flex items-center gap-2">
-            {/* Anon toggle */}
-            <div
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border-2 cursor-pointer transition-all select-none ${
-                isAnon
-                  ? "border-gray-800 bg-gray-900 text-white"
-                  : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
-              }`}
-              onClick={toggleAnon}
-            >
-              {isAnon ? <Shield size={13} className="text-gray-300" /> : <User size={13} />}
-              <span className="text-[11px] font-bold">{isAnon ? "Anon" : "You"}</span>
-            </div>
+            <h1 className="font-bold text-gray-900 text-base">Create Quote</h1>
+            {draftSaved && <span className="text-xs text-gray-400">Draft saved</span>}
+          </div>
+          <div
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border-2 cursor-pointer transition-all select-none ${
+              isAnon ? "border-gray-800 bg-gray-900 text-white" : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+            }`}
+            onClick={toggleAnon}
+          >
+            {isAnon ? <Shield size={13} className="text-gray-300" /> : <User size={13} />}
+            <span className="text-[11px] font-bold">{isAnon ? "Anon" : "You"}</span>
           </div>
         </div>
 
         {/* ── Compose area ── */}
         <div className="flex flex-1 px-4 pt-4 gap-3">
-          {/* Avatar */}
           <div className="shrink-0">
             {isAnon ? (
               <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center">
                 <Shield size={18} className="text-gray-300" />
               </div>
+            ) : displayAvatar ? (
+              <img src={displayAvatar} alt="me" className="w-10 h-10 rounded-full object-cover" />
             ) : (
-              <img src={authorAvatar} alt="me" className="w-10 h-10 rounded-full object-cover" />
+              <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
+                {displayName?.[0]?.toUpperCase() || "U"}
+              </div>
             )}
           </div>
 
           <div className="flex-1 min-w-0">
-            {/* Author name */}
             <p className="text-sm font-bold text-gray-900 mb-2">
-              {authorName}
+              {displayName}
               {isAnon && <span className="ml-2 text-[10px] bg-gray-800 text-gray-300 px-1.5 py-0.5 rounded-full">anonymous</span>}
             </p>
 
-            {/* Text area */}
             <textarea
               ref={textRef}
               value={content}
-              onChange={(e) => setContent(e.target.value.slice(0, 500))}
+              onChange={e => setContent(e.target.value.slice(0, 500))}
               placeholder="What's on your mind?"
               rows={5}
               className="w-full resize-none text-gray-900 text-[15px] leading-relaxed placeholder-gray-300 focus:outline-none bg-transparent"
             />
 
-            {/* Hashtag chips */}
             {extractedTags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
-                {[...new Set(extractedTags)].map((tag) => (
+                {[...new Set(extractedTags)].map(tag => (
                   <span key={tag} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-semibold">{tag}</span>
                 ))}
               </div>
             )}
 
-            {/* Attachments */}
             {attachments.length > 0 && (
               <div className="flex gap-2 mt-3 flex-wrap">
                 {attachments.map((att, i) => (
@@ -340,98 +345,85 @@ export function CreatePostPage() {
           </div>
         </div>
 
-        {/* ── Spacer ── */}
         <div className="flex-1" />
+
+        {/* ── Error message ── */}
+        {error && (
+          <div className="mx-4 mb-2 px-4 py-2 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+            {error}
+          </div>
+        )}
 
         {/* ── Bottom toolbar ── */}
         <div className={`border-t border-gray-100 px-4 py-3 sticky bottom-0 bg-white space-y-3 ${posted ? "opacity-60 pointer-events-none" : ""}`}>
           {/* Category */}
           <div className="flex overflow-x-auto gap-2 scrollbar-hide pb-1">
-            {POST_CATS.map((c) => (
-              <button key={c} onClick={() => setCategory(category === c ? "" : c)}
-                className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                  category === c
+            {POST_CATS.map(c => (
+              <button key={c.id} onClick={() => setCategory(c.id)}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all border ${
+                  category === c.id
                     ? "bg-blue-600 text-white border-blue-600"
                     : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
                 }`}>
-                {c}
+                {c.label}
               </button>
             ))}
           </div>
 
+          {/* Media + char count + post button */}
           <div className="flex items-center gap-3">
-            {/* Attach buttons */}
-            <input ref={imageRef} type="file" accept="image/*" multiple className="hidden"
-              onChange={(e) => e.target.files && addImages(e.target.files)} />
-            <input ref={videoRef} type="file" accept="video/*" className="hidden"
-              onChange={(e) => e.target.files?.[0] && addVideo(e.target.files[0])} />
-
-            <button
-              onClick={() => imageRef.current?.click()}
-              disabled={attachments.length >= MAX_ATTACHMENTS}
-              className="w-9 h-9 rounded-full flex items-center justify-center text-blue-500 hover:bg-blue-50 disabled:opacity-30 transition-colors"
-            >
-              <Image size={20} />
+            {/* Image */}
+            <button onClick={() => imageRef.current?.click()}
+              disabled={attachments.length >= 10}
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 transition-colors">
+              <Image size={18} className="text-gray-500" />
             </button>
-            <button
-              onClick={() => videoRef.current?.click()}
-              disabled={attachments.length >= MAX_ATTACHMENTS}
-              className="w-9 h-9 rounded-full flex items-center justify-center text-blue-500 hover:bg-blue-50 disabled:opacity-30 transition-colors"
-            >
-              <Video size={20} />
+            <input ref={imageRef} type="file" accept="image/*" multiple hidden
+              onChange={e => e.target.files && addImages(e.target.files)} />
+
+            {/* Video */}
+            <button onClick={() => videoRef.current?.click()}
+              disabled={attachments.length >= 10}
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 transition-colors">
+              <Video size={18} className="text-gray-500" />
             </button>
+            <input ref={videoRef} type="file" accept="video/*" hidden
+              onChange={e => e.target.files?.[0] && addVideo(e.target.files[0])} />
 
-            {/* Attachment count */}
-            {attachments.length > 0 && (
-              <span className="text-xs text-gray-400 font-semibold">{attachments.length}/{MAX_ATTACHMENTS}</span>
-            )}
-
-            {/* Allow thoughts toggle */}
-            <div className="flex items-center gap-1.5 ml-auto">
-              <span className="text-xs text-gray-500 font-medium">Thoughts</span>
-              <button onClick={() => setAllowThoughts(!allowThoughts)}
-                className={`relative w-9 h-5 rounded-full transition-colors ${allowThoughts ? "bg-blue-600" : "bg-gray-300"}`}>
-                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${allowThoughts ? "left-4" : "left-0.5"}`} />
-              </button>
-            </div>
+            <div className="flex-1" />
 
             {/* Char counter */}
-            <span className={`text-xs font-semibold ml-2 ${charLeft < 20 ? "text-red-500" : "text-gray-400"}`}>
+            <div className={`text-xs font-bold tabular-nums ${charLeft < 0 ? "text-red-500" : charLeft < 50 ? "text-amber-500" : "text-gray-300"}`}>
               {charLeft}
-            </span>
-
-            {/* Draft saved indicator */}
-            {draftsaved && (
-              <span className="text-xs text-green-500 font-medium flex items-center gap-1">
-                <Check size={12} /> Saved
-              </span>
-            )}
+            </div>
 
             {/* Post button */}
             <button
               onClick={handlePost}
               disabled={!canPost || posting || posted}
-              className={`px-5 py-2 rounded-full font-bold text-sm transition-all flex items-center gap-1.5 ${
-                canPost && !posting
-                  ? "bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
-                  : "bg-gray-200 text-gray-400 cursor-not-allowed"
+              className={`px-5 py-2 rounded-full font-bold text-sm transition-all ${
+                canPost && !posting && !posted
+                  ? "bg-blue-600 text-white hover:bg-blue-700 shadow-sm shadow-blue-600/20"
+                  : "bg-gray-100 text-gray-400"
               }`}
             >
               {posted ? (
-                <><Check size={15} /> Posted!</>
+                <span className="flex items-center gap-1.5"><Check size={14} />Posted!</span>
               ) : posting ? (
-                <><Loader2 size={14} className="animate-spin" /> Posting…</>
+                <span className="flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" />Posting…</span>
               ) : (
-                "Quote it"
+                "Post"
               )}
             </button>
           </div>
         </div>
       </div>
 
-      {/* PIN modal */}
       {showPinModal && (
-        <AnonPinModal onSuccess={onPinSuccess} onCancel={() => setShowPinModal(false)} />
+        <AnonPinModal
+          onSuccess={() => { setShowPinModal(false); setPinVerified(true); setIsAnon(true); }}
+          onCancel={() => setShowPinModal(false)}
+        />
       )}
     </>
   );

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Camera, Check, Loader2 } from "lucide-react";
-import { currentUser } from "../mockData";
+import { currentUser } from "../data/mockData";
 
 const user = currentUser as any;
 

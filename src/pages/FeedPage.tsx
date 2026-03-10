@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { PostCard } from "../components/PostCard";
-import { mockStoriesUsers, currentUser } from "../data/mockData";
-import { getFeedQuotes } from "../../services/feedService";
+import { useAuth } from "../contexts/AuthContext";
+import { fetchFeedPosts, type LivePost } from "../services/feedService";
 
 const CATS = [
-  { id: "top", label: "🔥 Top" },
-  { id: "city", label: "🏙️ City" },
-  { id: "sports", label: "🏏 Sports" },
-  { id: "science", label: "🔬 Science" },
+  { id: "top",           label: "🔥 Top" },
+  { id: "city",          label: "🏙️ City" },
+  { id: "sports",        label: "🏏 Sports" },
+  { id: "science",       label: "🔬 Science" },
   { id: "entertainment", label: "🎬 Entertainment" },
-  { id: "world", label: "🌍 World" },
+  { id: "world",         label: "🌍 World" },
 ];
 
-/* ── Skeleton Loader ── */
+/* ── Skeleton ── */
 function PostSkeleton() {
   return (
     <div className="bg-white border-b border-gray-100 px-4 py-3">
@@ -29,9 +29,7 @@ function PostSkeleton() {
           <div className="skeleton h-3 w-full rounded" />
           <div className="skeleton h-3 w-5/6 rounded" />
           <div className="flex gap-5 mt-3">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="skeleton h-5 w-12 rounded" />
-            ))}
+            {[0,1,2,3].map(i => <div key={i} className="skeleton h-5 w-12 rounded" />)}
           </div>
         </div>
       </div>
@@ -39,192 +37,116 @@ function PostSkeleton() {
   );
 }
 
-/* ── Stories Bar ── */
-function StoriesBar() {
-  const navigate = useNavigate();
-
+/* ── Empty state ── */
+function EmptyState({ category }: { category: string }) {
   return (
-    <div className="bg-white border-b border-gray-100 px-4 py-3">
-      <div className="flex gap-4 overflow-x-auto scrollbar-hide">
-
-        {/* Add Status */}
-        <div
-          className="flex flex-col items-center gap-1 shrink-0"
-          onClick={() => navigate("/status")}
-        >
-          <div className="relative cursor-pointer">
-            <img
-              src={
-                currentUser?.avatar ||
-                "https://images.unsplash.com/photo-1639149888905-fb39731f2e6c?w=60&h=60&fit=crop"
-              }
-              alt="me"
-              className="w-14 h-14 rounded-full object-cover ring-2 ring-gray-200"
-            />
-            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center border-2 border-white">
-              <span className="text-white text-xs font-bold">+</span>
-            </div>
-          </div>
-
-          <span className="text-[10px] text-gray-500 font-medium">
-            Add
-          </span>
-        </div>
-
-        {/* User Status */}
-        {mockStoriesUsers.map((s: any) => (
-          <div
-            key={s.id}
-            className="flex flex-col items-center gap-1 shrink-0 cursor-pointer"
-            onClick={() => navigate(`/status/${s.user.id}`)}
-          >
-            <div
-              className={`p-[2.5px] rounded-full ${
-                s.seen ? "story-ring-seen" : "story-ring"
-              }`}
-            >
-              <img
-                src={s.user.avatar}
-                alt={s.user.name}
-                className="w-12 h-12 rounded-full object-cover ring-[2px] ring-white"
-              />
-            </div>
-
-            <span className="text-[10px] text-gray-500 font-medium max-w-[52px] truncate text-center">
-              {s.user.name.split(" ")[0]}
-            </span>
-          </div>
-        ))}
+    <div className="flex flex-col items-center justify-center py-20 text-center px-6">
+      <div className="text-5xl mb-4">
+        {category === "top" ? "🌐" : category === "city" ? "🏙️" : "📭"}
       </div>
+      <p className="font-bold text-gray-800 text-lg mb-1">No posts yet</p>
+      <p className="text-gray-500 text-sm">
+        {category === "top"
+          ? "Be the first to post something!"
+          : `No posts in ${category} yet. Switch to Top to see all posts.`}
+      </p>
     </div>
   );
 }
 
 export function FeedPage() {
-
+  const { user, profile } = useAuth();
+  const navigate = useNavigate();
   const [activeCategory, setActiveCategory] = useState("top");
-  const [posts, setPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState<LivePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(10);
-
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const PAGE_SIZE = 15;
 
-  /* Load feed from Supabase */
-  useEffect(() => {
-    async function loadFeed() {
-      try {
-        setLoading(true);
+  /* Load posts when category changes */
+  const loadPosts = useCallback(async (cat: string, pg: number, replace: boolean) => {
+    if (replace) setLoading(true);
+    else setLoadingMore(true);
 
-        const data = await getFeedQuotes();
+    const newPosts = await fetchFeedPosts(cat, pg, PAGE_SIZE, user?.id);
 
-        if (data) {
-          setPosts(data);
-        } else {
-          setPosts([]);
-        }
-
-      } catch (err) {
-        console.error("Feed load error:", err);
-      } finally {
-        setLoading(false);
-      }
+    if (replace) {
+      setPosts(newPosts);
+      setLoading(false);
+    } else {
+      setPosts(prev => [...prev, ...newPosts]);
+      setLoadingMore(false);
     }
 
-    loadFeed();
-  }, []);
+    setHasMore(newPosts.length === PAGE_SIZE);
+  }, [user?.id]);
 
-  /* Reset visible posts when category changes */
+  /* Category change → reset and reload */
   useEffect(() => {
-    setVisibleCount(10);
+    setPage(0);
+    setHasMore(true);
+    loadPosts(activeCategory, 0, true);
   }, [activeCategory]);
 
-  /* Infinite Scroll */
+  /* Infinite scroll */
   useEffect(() => {
-    if (loading) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !loadingMore) {
-          setLoadingMore(true);
-
-          setTimeout(() => {
-            setVisibleCount((prev) => prev + 5);
-            setLoadingMore(false);
-          }, 800);
-        }
-      },
-      { threshold: 0.5 }
-    );
-
-    if (bottomRef.current) observer.observe(bottomRef.current);
-
-    return () => observer.disconnect();
-  }, [loading, loadingMore]);
-
-  /* Category filter */
-  const filteredPosts =
-    activeCategory === "top"
-      ? posts
-      : posts.filter(
-          (p: any) => p.category?.toLowerCase() === activeCategory
-        );
+    if (loading || !hasMore) return;
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && !loadingMore && hasMore) {
+        const nextPage = page + 1;
+        setPage(nextPage);
+        loadPosts(activeCategory, nextPage, false);
+      }
+    }, { threshold: 0.5 });
+    if (bottomRef.current) obs.observe(bottomRef.current);
+    return () => obs.disconnect();
+  }, [loading, loadingMore, hasMore, page, activeCategory]);
 
   return (
     <AppShell>
-
       <div className="page-enter mt-14 lg:mt-0">
-
-        {/* Category Tabs */}
+        {/* Category tabs */}
         <div className="bg-white border-b border-gray-100 sticky top-14 lg:top-0 z-20">
           <div className="flex overflow-x-auto scrollbar-hide px-2 py-1 gap-1">
             {CATS.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setActiveCategory(c.id)}
+              <button key={c.id} onClick={() => setActiveCategory(c.id)}
                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
                   activeCategory === c.id
                     ? "bg-blue-600 text-white shadow-sm"
                     : "text-gray-500 hover:bg-gray-100"
-                }`}
-              >
+                }`}>
                 {c.label}
               </button>
             ))}
           </div>
         </div>
 
-        <StoriesBar />
-
         {loading ? (
-          Array.from({ length: 6 }).map((_, i) => (
-            <PostSkeleton key={i} />
-          ))
+          Array.from({ length: 6 }).map((_, i) => <PostSkeleton key={i} />)
+        ) : posts.length === 0 ? (
+          <EmptyState category={activeCategory} />
         ) : (
           <>
-            {filteredPosts.slice(0, visibleCount).map((post: any) => (
+            {posts.map((post) => (
               <PostCard
                 key={post.id}
-                post={post}
-                isLoggedIn={true}
-                isOwn={post.user?.id === "u1"}
+                post={post as any}
+                isLoggedIn={!!user}
+                isOwn={post.user_id === user?.id}
               />
             ))}
-
-            {/* Infinite scroll loader */}
             <div ref={bottomRef} className="py-4 flex justify-center">
-              {loadingMore && (
-                <Loader2
-                  size={20}
-                  className="animate-spin text-blue-400"
-                />
+              {loadingMore && <Loader2 size={20} className="animate-spin text-blue-400" />}
+              {!hasMore && posts.length > 0 && (
+                <p className="text-xs text-gray-400 font-medium">You're all caught up ✓</p>
               )}
             </div>
           </>
         )}
-
       </div>
-
     </AppShell>
   );
 }

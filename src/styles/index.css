@@ -1,8 +1,9 @@
+@import "tailwindcss";
+@import "tw-animate-css";
 @import './fonts.css';
-@import './tailwind.css';
 @import './theme.css';
 
-/* ── Base font stack — covers all 9 supported Indian languages ── */
+/* ── Base font stack ── */
 :root {
   --font-body: 'Nunito', 'Noto Sans Devanagari', 'Noto Sans Bengali',
     'Noto Sans Telugu', 'Noto Sans Tamil', 'Noto Sans Kannada',
@@ -18,7 +19,7 @@
   --sphere-text:       #111827;
   --sphere-muted:      #6B7280;
 
-  /* Anon gradients — 12 presets (index 0-11) */
+  /* Anon gradients */
   --grad-0:  linear-gradient(135deg,#1D4ED8,#06B6D4);
   --grad-1:  linear-gradient(135deg,#F97316,#EF4444);
   --grad-2:  linear-gradient(135deg,#16A34A,#059669);
@@ -28,86 +29,79 @@
   --grad-6:  linear-gradient(135deg,#BE185D,#9333EA);
   --grad-7:  linear-gradient(135deg,#0F766E,#0D9488);
   --grad-8:  linear-gradient(135deg,#B91C1C,#D97706);
-  --grad-9:  linear-gradient(135deg,#0EA5E9,#38BDF8);
-  --grad-10: linear-gradient(135deg,#374151,#6B7280);
-  --grad-11: linear-gradient(135deg,#EC4899,#F43F5E);
+  --grad-9:  linear-gradient(135deg,#0EA5E9,#6366F1);
+  --grad-10: linear-gradient(135deg,#84CC16,#10B981);
+  --grad-11: linear-gradient(135deg,#F43F5E,#FB923C);
 }
 
+/* ── Base reset ── */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 body {
   font-family: var(--font-body);
   background-color: var(--sphere-bg);
   color: var(--sphere-text);
+  margin: 0; padding: 0;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 /* ── Scrollbar hide ── */
-.scrollbar-hide { -ms-overflow-style:none; scrollbar-width:none; }
-.scrollbar-hide::-webkit-scrollbar { display:none; }
-
-/* ── Tap highlight ── */
-* { -webkit-tap-highlight-color: transparent; }
-
-/* ── Smooth transitions for interactive elements ── */
-button, a { transition: all 0.15s ease; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
 /* ── Skeleton shimmer ── */
 @keyframes shimmer {
   0%   { background-position: -400px 0; }
-  100% { background-position: 400px 0; }
+  100% { background-position:  400px 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%);
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 800px 100%;
-  animation: shimmer 1.5s infinite linear;
-  border-radius: 0.5rem;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 6px;
 }
 
-/* ── Sphere logo font ── */
-.font-sphere { font-family: 'Pacifico', cursive; }
-
-/* ── Anon gradient backgrounds ── */
-.anon-grad-0  { background: var(--grad-0); }
-.anon-grad-1  { background: var(--grad-1); }
-.anon-grad-2  { background: var(--grad-2); }
-.anon-grad-3  { background: var(--grad-3); }
-.anon-grad-4  { background: var(--grad-4); }
-.anon-grad-5  { background: var(--grad-5); }
-.anon-grad-6  { background: var(--grad-6); }
-.anon-grad-7  { background: var(--grad-7); }
-.anon-grad-8  { background: var(--grad-8); }
-.anon-grad-9  { background: var(--grad-9); }
-.anon-grad-10 { background: var(--grad-10); }
-.anon-grad-11 { background: var(--grad-11); }
-
-/* ── PIN dot animations ── */
-@keyframes pin-shake {
-  0%,100% { transform: translateX(0); }
-  20%      { transform: translateX(-8px); }
-  40%      { transform: translateX(8px); }
-  60%      { transform: translateX(-6px); }
-  80%      { transform: translateX(6px); }
+/* ── Page enter ── */
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-.pin-shake { animation: pin-shake 0.4s ease; }
+.page-enter { animation: pageEnter 0.25s ease-out both; }
 
-/* ── Page enter animation ── */
-@keyframes page-enter {
-  from { opacity:0; transform:translateY(8px); }
-  to   { opacity:1; transform:translateY(0); }
-}
-.page-enter { animation: page-enter 0.25s ease forwards; }
-
-/* ── Bottom sheet slide ── */
-@keyframes sheet-up {
+/* ── Sheet slide up ── */
+@keyframes sheetUp {
   from { transform: translateY(100%); }
   to   { transform: translateY(0); }
 }
-.sheet-up { animation: sheet-up 0.3s cubic-bezier(0.32,0.72,0,1) forwards; }
+.sheet-up { animation: sheetUp 0.28s cubic-bezier(0.32,0.72,0,1) both; }
 
-/* ── Story ring gradients ── */
+/* ── Story rings ── */
 .story-ring {
-  background: linear-gradient(135deg, #14B8A6, #06B6D4, #818CF8);
-  padding: 2.5px;
-  border-radius: 9999px;
+  background: linear-gradient(135deg, #f97316, #ef4444, #7c3aed);
+  padding: 2px; border-radius: 50%;
 }
-.story-ring-seen { background: #D1D5DB; }
+.story-ring-seen { background: #e5e7eb; padding: 2px; border-radius: 50%; }
+
+/* ── PIN shake ── */
+@keyframes pinShake {
+  0%,100% { transform: translateX(0); }
+  20%     { transform: translateX(-6px); }
+  40%     { transform: translateX(6px); }
+  60%     { transform: translateX(-4px); }
+  80%     { transform: translateX(4px); }
+}
+.pin-shake { animation: pinShake 0.4s ease-in-out; }
+
+/* ── Anon gradient classes ── */
+.anon-status-0  { background: var(--grad-0); }
+.anon-status-1  { background: var(--grad-1); }
+.anon-status-2  { background: var(--grad-2); }
+.anon-status-3  { background: var(--grad-3); }
+.anon-status-4  { background: var(--grad-4); }
+.anon-status-5  { background: var(--grad-5); }
+.anon-status-6  { background: var(--grad-6); }
+.anon-status-7  { background: var(--grad-7); }
+.anon-status-8  { background: var(--grad-8); }
+.anon-status-9  { background: var(--grad-9); }
+.anon-status-10 { background: var(--grad-10); }
+.anon-status-11 { background: var(--grad-11); }

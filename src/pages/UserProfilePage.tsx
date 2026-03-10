@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, MessageCircle, Grid3X3, FileText, MapPin, Link2, MoreHorizontal, Flag, UserMinus } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { PostCard } from "../components/PostCard";
-import { mockUsers, mockProfilePosts } from "../mockData";
+import { mockUsers, mockProfilePosts } from "../data/mockData";
 
 export function UserProfilePage() {
   const navigate = useNavigate();

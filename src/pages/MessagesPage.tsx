@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { ArrowLeft, Search, Send, MoreHorizontal, Image, Smile, Check, CheckCheck } from "lucide-react";
 import { AppShell } from "../components/AppShell";
-import { mockUsers, currentUser } from "../mockData";
+import { mockUsers, currentUser } from "../data/mockData";
 
 const CONVERSATIONS = mockUsers.slice(0,4).map((u, i) => ({
   id: u.id,

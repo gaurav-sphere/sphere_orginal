@@ -4,7 +4,7 @@ import {
   Eye, EyeOff, ArrowLeft, ArrowRight, CheckCircle2,
   User, Building2, Shield, ChevronDown,
 } from "lucide-react";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth } from "../contexts/AuthContext";
 
 /* ── helpers ── */
 type Mode = "login" | "register";

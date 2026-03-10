@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 import { ArrowLeft, X, Camera, Video, Type, Send, Check, ChevronLeft, ChevronRight, Pause, Play, Volume2, VolumeX } from "lucide-react";
-import { mockStoriesUsers, currentUser } from "../mockData";
-import { getStatusGradient } from "../../contexts/GuestContext";
+import { mockStoriesUsers, currentUser } from "../data/mockData";
+import { getStatusGradient } from "../contexts/GuestContext";
 
 const GRADIENT_CLASSES = [
   "anon-grad-0","anon-grad-1","anon-grad-2","anon-grad-3",

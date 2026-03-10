@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { Search, X, TrendingUp, Users, Building2 } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { PostCard } from "../components/PostCard";
-import { mockPosts, mockUsers, trendingHashtags } from "../mockData";
+import { mockPosts, mockUsers, trendingHashtags } from "../data/mockData";
 
 const FILTERS = [
   { id:"top",     label:"Top",           icon:TrendingUp },

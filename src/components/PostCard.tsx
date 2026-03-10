@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router";
 import {
@@ -8,9 +6,8 @@ import {
   VolumeX, ChevronLeft, ChevronRight, Check,
 } from "lucide-react";
 import { LoginGateSheet } from "./LoginGateSheet";
-import { togglePraise } from "../services/praiseService";
-/* 
-── Types ─────────────────────────────────────────────────────────────────── */
+
+/* ── Types ─────────────────────────────────────────────────────────────────── */
 interface MediaItem { type: "image" | "video"; url: string; poster?: string; aspectRatio?: number }
 export interface Post {
   id: string;
@@ -212,23 +209,13 @@ export function PostCard({ post, isLoggedIn = false, isOwn = false }: PostCardPr
     fn();
   };
 
-  const handlePraise = async (e: React.MouseEvent) => {
-  e.stopPropagation();
-
-  gate("praise", async () => {
-
-    const userId = "guest-user"; // later we replace with real user id
-
-    const praisedNow = await togglePraise(post.id, userId);
-
-    setPraised(praisedNow);
-
-    setPraiseCount((c) =>
-      praisedNow ? c + 1 : c - 1
-    );
-
-  });
-};
+  const handlePraise = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    gate("praise", () => {
+      setPraised(p => !p);
+      setPraiseCount(c => praised ? c - 1 : c + 1);
+    });
+  };
 
   const handleForward = (e: React.MouseEvent) => {
     e.stopPropagation();
