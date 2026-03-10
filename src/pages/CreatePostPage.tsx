@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
 import {
-  ArrowLeft, Image, Video, X, Shield, User, Hash,
-  ChevronDown, Loader2, Check,
+  ArrowLeft, Image, Video, X, Shield, User, Hash, AtSign,
+  Loader2, Check,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -114,25 +114,39 @@ const POST_CATS = [
   { id: "world",         label: "🌍 World" },
 ];
 
+interface MentionUser {
+  id: string;
+  name: string;
+  username: string;
+  avatar_url: string;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════ */
 export function CreatePostPage() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
 
-  const [isAnon, setIsAnon]       = useState(false);
-  const [showPinModal, setShowPinModal] = useState(false);
+  const [isAnon, setIsAnon]           = useState(false);
+  const [showPinModal, setShowPinModal]= useState(false);
   const [pinVerified, setPinVerified]  = useState(false);
-  const [content, setContent]     = useState("");
-  const [category, setCategory]   = useState("top");
+  const [content, setContent]         = useState("");
+  const [category, setCategory]       = useState("top");
   const [attachments, setAttachments] = useState<Array<{type:"image"|"video"; url: string; file: File}>>([]);
-  const [posting, setPosting]     = useState(false);
-  const [posted, setPosted]       = useState(false);
-  const [error, setError]         = useState("");
-  const [draftSaved, setDraftSaved] = useState(false);
+  const [posting, setPosting]         = useState(false);
+  const [posted, setPosted]           = useState(false);
+  const [error, setError]             = useState("");
+  const [draftSaved, setDraftSaved]   = useState(false);
+
+  /* ── @mention & #hashtag autocomplete ── */
+  const [mentionSuggestions, setMentionSuggestions] = useState<MentionUser[]>([]);
+  const [hashtagSuggestions, setHashtagSuggestions] = useState<string[]>([]);
+  const [activeWord, setActiveWord]   = useState("");
+
   const textRef  = useRef<HTMLTextAreaElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const draftTimer = useRef<ReturnType<typeof setTimeout>>();
+  const mentionTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const charLeft = 500 - content.length;
   const canPost  = (content.trim().length > 0 || attachments.length > 0) && charLeft >= 0;
@@ -160,6 +174,63 @@ export function CreatePostPage() {
     }
     textRef.current?.focus();
   }, []);
+
+  /* ── Handle textarea change — detect @mention and #hashtag ── */
+  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value.slice(0, 500);
+    setContent(val);
+
+    // Find the current word being typed
+    const cursorPos = e.target.selectionStart || val.length;
+    const textUpToCursor = val.slice(0, cursorPos);
+    const words = textUpToCursor.split(/\s/);
+    const lastWord = words[words.length - 1];
+
+    setActiveWord(lastWord);
+
+    if (lastWord.startsWith("@") && lastWord.length > 1) {
+      const q = lastWord.slice(1).toLowerCase();
+      clearTimeout(mentionTimer.current);
+      mentionTimer.current = setTimeout(async () => {
+        const { data } = await supabase
+          .from("profiles")
+          .select("id, name, username, avatar_url")
+          .ilike("username", `${q}%`)
+          .limit(5);
+        setMentionSuggestions((data as MentionUser[]) || []);
+        setHashtagSuggestions([]);
+      }, 250);
+    } else if (lastWord.startsWith("#") && lastWord.length > 1) {
+      const q = lastWord.slice(1).toLowerCase();
+      clearTimeout(mentionTimer.current);
+      mentionTimer.current = setTimeout(async () => {
+        // fetch real trending hashtags that match
+        const { data } = await supabase
+          .rpc("get_trending_hashtags", { limit_n: 20 });
+        const tags = ((data as { tag: string }[]) || [])
+          .filter(h => h.tag.toLowerCase().includes(q))
+          .slice(0, 5)
+          .map(h => h.tag);
+        setHashtagSuggestions(tags);
+        setMentionSuggestions([]);
+      }, 250);
+    } else {
+      setMentionSuggestions([]);
+      setHashtagSuggestions([]);
+    }
+  };
+
+  const insertSuggestion = (replacement: string) => {
+    const cursorPos = textRef.current?.selectionStart || content.length;
+    const textUpToCursor = content.slice(0, cursorPos);
+    const words = textUpToCursor.split(/\s/);
+    words[words.length - 1] = replacement + " ";
+    const newContent = words.join(" ") + content.slice(cursorPos);
+    setContent(newContent.slice(0, 500));
+    setMentionSuggestions([]);
+    setHashtagSuggestions([]);
+    setTimeout(() => textRef.current?.focus(), 50);
+  };
 
   /* ── Toggle anon ── */
   const toggleAnon = () => {
@@ -211,56 +282,56 @@ export function CreatePostPage() {
     setError("");
 
     try {
-      // Extract hashtags from content
-      const hashtags = [...new Set([...content.matchAll(/#(\w+)/gu)].map(m => m[1].toLowerCase()))];
+      // Extract hashtags — handle both #tag and bare tag references
+      const hashtags = [
+        ...new Set(
+          [...content.matchAll(/#(\w+)/gu)].map(m => m[1].toLowerCase())
+        ),
+      ];
 
-      // Insert the post row first (to get its ID for media paths)
       const { data: postRow, error: postErr } = await supabase
         .from("posts")
         .insert({
-          user_id:   user.id,
-          body:      content.trim(),
-          category:  category || "top",
-          is_anon:   isAnon,
-          hashtags:  hashtags,
-          is_forward: false,
+          user_id:     user.id,
+          body:        content.trim(),
+          category:    category || "top",
+          is_anon:     isAnon,
+          hashtags:    hashtags,     // text[] column — must exist, see supabase-fix-v3.sql
+          is_forward:  false,
         })
         .select("id")
         .single();
 
       if (postErr || !postRow) {
         console.error("Post insert error:", postErr);
-        setError("Failed to create post. Please try again.");
+        setError(`Failed to create post: ${postErr?.message || "Unknown error"}. Run supabase-fix-v3.sql first.`);
         setPosting(false);
         return;
       }
 
       const postId = postRow.id;
 
-      // Upload media attachments
+      // Upload media
       if (attachments.length > 0) {
-        const uploadPromises = attachments.map((att, idx) => uploadFile(att.file, postId, idx));
-        const urls = await Promise.all(uploadPromises);
-
+        const urls = await Promise.all(
+          attachments.map((att, idx) => uploadFile(att.file, postId, idx))
+        );
         const mediaRows = urls
           .map((url, idx) => url ? {
             post_id:    postId,
-            url:        url,
+            url,
             media_type: attachments[idx].type,
             position:   idx,
           } : null)
           .filter(Boolean);
-
         if (mediaRows.length > 0) {
           await supabase.from("post_media").insert(mediaRows);
         }
       }
 
-      // Done!
       localStorage.removeItem("sphere_draft");
       setPosted(true);
       setTimeout(() => navigate("/feed"), 800);
-
     } catch (err) {
       console.error("Unexpected error:", err);
       setError("Something went wrong. Please try again.");
@@ -269,12 +340,15 @@ export function CreatePostPage() {
   };
 
   const extractedTags = [...content.matchAll(/#(\w+)/gu)].map(m => m[0]);
-  const displayName   = isAnon ? (profile?.username ? `@anon_${profile.username}` : "Anonymous") : (profile?.name || "You");
+  const displayName   = isAnon
+    ? (profile?.anon_username ? `@${profile.anon_username}` : "Anonymous")
+    : (profile?.name || "You");
   const displayAvatar = isAnon ? null : profile?.avatar_url;
 
   return (
     <>
       <div className="min-h-screen bg-white flex flex-col">
+
         {/* ── Header ── */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white z-20">
           <button onClick={() => navigate(-1)}
@@ -304,7 +378,8 @@ export function CreatePostPage() {
                 <Shield size={18} className="text-gray-300" />
               </div>
             ) : displayAvatar ? (
-              <img src={displayAvatar} alt="me" className="w-10 h-10 rounded-full object-cover" />
+              <img src={displayAvatar} alt="me" className="w-10 h-10 rounded-full object-cover"
+                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
             ) : (
               <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
                 {displayName?.[0]?.toUpperCase() || "U"}
@@ -321,13 +396,63 @@ export function CreatePostPage() {
             <textarea
               ref={textRef}
               value={content}
-              onChange={e => setContent(e.target.value.slice(0, 500))}
-              placeholder="What's on your mind?"
+              onChange={handleContentChange}
+              placeholder="What's on your mind? Use # for hashtags or @ to mention"
               rows={5}
-              className="w-full resize-none text-gray-900 text-[15px] leading-relaxed placeholder-gray-300 focus:outline-none bg-transparent"
+              className="w-full resize-none text-gray-900 text-[15px] leading-relaxed placeholder-gray-400 focus:outline-none bg-transparent"
             />
 
-            {extractedTags.length > 0 && (
+            {/* ── @mention suggestions ── */}
+            {mentionSuggestions.length > 0 && (
+              <div className="mt-1 border border-gray-200 rounded-xl overflow-hidden shadow-lg bg-white z-30 relative">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                  <AtSign size={11} className="text-gray-400" />
+                  <span className="text-xs font-semibold text-gray-500">Mention a person</span>
+                </div>
+                {mentionSuggestions.map(u => (
+                  <button
+                    key={u.id}
+                    onMouseDown={e => { e.preventDefault(); insertSuggestion(`@${u.username}`); }}
+                    className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
+                  >
+                    {u.avatar_url ? (
+                      <img src={u.avatar_url} alt={u.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                        {u.name?.[0]?.toUpperCase() || "U"}
+                      </div>
+                    )}
+                    <div className="text-left min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{u.name}</p>
+                      <p className="text-xs text-gray-400 truncate">@{u.username}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* ── #hashtag suggestions ── */}
+            {hashtagSuggestions.length > 0 && (
+              <div className="mt-1 border border-gray-200 rounded-xl overflow-hidden shadow-lg bg-white z-30 relative">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                  <Hash size={11} className="text-gray-400" />
+                  <span className="text-xs font-semibold text-gray-500">Trending hashtags</span>
+                </div>
+                {hashtagSuggestions.map(tag => (
+                  <button
+                    key={tag}
+                    onMouseDown={e => { e.preventDefault(); insertSuggestion(`#${tag}`); }}
+                    className="flex items-center gap-2 w-full px-3 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
+                  >
+                    <span className="text-blue-500 font-bold text-sm">#</span>
+                    <span className="text-sm text-gray-800">{tag}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Extracted tags preview */}
+            {extractedTags.length > 0 && mentionSuggestions.length === 0 && hashtagSuggestions.length === 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {[...new Set(extractedTags)].map(tag => (
                   <span key={tag} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-semibold">{tag}</span>
@@ -335,6 +460,7 @@ export function CreatePostPage() {
               </div>
             )}
 
+            {/* Attachments */}
             {attachments.length > 0 && (
               <div className="flex gap-2 mt-3 flex-wrap">
                 {attachments.map((att, i) => (
@@ -349,14 +475,14 @@ export function CreatePostPage() {
 
         {/* ── Error message ── */}
         {error && (
-          <div className="mx-4 mb-2 px-4 py-2 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
+          <div className="mx-4 mb-2 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
             {error}
           </div>
         )}
 
         {/* ── Bottom toolbar ── */}
         <div className={`border-t border-gray-100 px-4 py-3 sticky bottom-0 bg-white space-y-3 ${posted ? "opacity-60 pointer-events-none" : ""}`}>
-          {/* Category */}
+          {/* Category pills */}
           <div className="flex overflow-x-auto gap-2 scrollbar-hide pb-1">
             {POST_CATS.map(c => (
               <button key={c.id} onClick={() => setCategory(c.id)}
@@ -372,7 +498,6 @@ export function CreatePostPage() {
 
           {/* Media + char count + post button */}
           <div className="flex items-center gap-3">
-            {/* Image */}
             <button onClick={() => imageRef.current?.click()}
               disabled={attachments.length >= 10}
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 transition-colors">
@@ -381,7 +506,6 @@ export function CreatePostPage() {
             <input ref={imageRef} type="file" accept="image/*" multiple hidden
               onChange={e => e.target.files && addImages(e.target.files)} />
 
-            {/* Video */}
             <button onClick={() => videoRef.current?.click()}
               disabled={attachments.length >= 10}
               className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 disabled:opacity-40 transition-colors">
@@ -392,12 +516,10 @@ export function CreatePostPage() {
 
             <div className="flex-1" />
 
-            {/* Char counter */}
             <div className={`text-xs font-bold tabular-nums ${charLeft < 0 ? "text-red-500" : charLeft < 50 ? "text-amber-500" : "text-gray-300"}`}>
               {charLeft}
             </div>
 
-            {/* Post button */}
             <button
               onClick={handlePost}
               disabled={!canPost || posting || posted}
