@@ -1,1 +1,4 @@
-/* Empty — tailwindcss is imported in index.css */
+/* INTENTIONALLY EMPTY.
+   @import "tailwindcss" has been moved to index.css line 1.
+   This file must stay empty. Do not add @import "tailwindcss" here.
+*/

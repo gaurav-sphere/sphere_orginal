@@ -1,13 +1,12 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import './fonts.css';
-@import './theme.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap');
 
 /* ── Base font stack ── */
 :root {
-  --font-body: 'Nunito', 'Noto Sans Devanagari', 'Noto Sans Bengali',
-    'Noto Sans Telugu', 'Noto Sans Tamil', 'Noto Sans Kannada',
-    'Noto Sans Odia', 'Noto Sans Gurmukhi', sans-serif;
+  --font-body: 'Nunito', sans-serif;
 
   /* Sphere brand colours */
   --sphere-blue:       #1D4ED8;
@@ -41,9 +40,18 @@ body {
   font-family: var(--font-body);
   background-color: var(--sphere-bg);
   color: var(--sphere-text);
-  margin: 0; padding: 0;
+  margin: 0;
+  padding: 0;
   -webkit-font-smoothing: antialiased;
 }
+
+/* ── Sphere logo font ── */
+@font-face {
+  font-family: 'sphere';
+  src: url('/fonts/sphere.woff2') format('woff2');
+  font-display: swap;
+}
+.font-sphere { font-family: 'sphere', 'Nunito', cursive; }
 
 /* ── Scrollbar hide ── */
 .scrollbar-hide::-webkit-scrollbar { display: none; }
@@ -78,9 +86,14 @@ body {
 /* ── Story rings ── */
 .story-ring {
   background: linear-gradient(135deg, #f97316, #ef4444, #7c3aed);
-  padding: 2px; border-radius: 50%;
+  padding: 2.5px;
+  border-radius: 50%;
 }
-.story-ring-seen { background: #e5e7eb; padding: 2px; border-radius: 50%; }
+.story-ring-seen {
+  background: #e5e7eb;
+  padding: 2.5px;
+  border-radius: 50%;
+}
 
 /* ── PIN shake ── */
 @keyframes pinShake {
@@ -92,7 +105,7 @@ body {
 }
 .pin-shake { animation: pinShake 0.4s ease-in-out; }
 
-/* ── Anon gradient classes ── */
+/* ── Anon gradients ── */
 .anon-status-0  { background: var(--grad-0); }
 .anon-status-1  { background: var(--grad-1); }
 .anon-status-2  { background: var(--grad-2); }
