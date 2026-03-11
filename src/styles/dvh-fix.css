@@ -1,0 +1,17 @@
+/* Fix for mobile browser address bar pushing content */
+html, body, #root {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+/* Pages that need full dvh height */
+.page-full-height {
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+/* Prevent content jump when keyboard opens */
+@supports (height: 100dvh) {
+  .use-dvh { height: 100dvh !important; }
+}

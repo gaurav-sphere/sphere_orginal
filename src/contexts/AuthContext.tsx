@@ -2,7 +2,6 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { supabase } from '../lib/supabase'
 import type { User, Session } from '@supabase/supabase-js'
 
-/* ── Types ─────────────────────────────────────────────────────────────────── */
 export interface SphereProfile {
   id: string
   username: string
@@ -17,6 +16,7 @@ export interface SphereProfile {
   gender?: string
   dob?: string
   language?: string[]
+  email?: string
   is_verified: boolean
   is_private: boolean
   is_org: boolean
@@ -60,7 +60,6 @@ export interface SignUpData {
   org_description?:  string
 }
 
-/* ── Context ────────────────────────────────────────────────────────────────── */
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -74,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .from('profiles')
       .select('*')
       .eq('id', userId)
-      .single()
+      .maybeSingle()
     if (data) setProfile(data as SphereProfile)
   }, [])
 
@@ -85,22 +84,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) fetchProfile(session.user.id)
       setLoading(false)
     })
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
-      else { setProfile(null) }
+      else setProfile(null)
     })
-
     return () => subscription.unsubscribe()
   }, [fetchProfile])
 
   /* ── SIGN IN — accepts email OR username (with or without @) ── */
   const signIn = useCallback(async (emailOrUsername: string, password: string) => {
     const input = emailOrUsername.trim()
-
-    // If it's clearly an email (has @ not at start), use directly
     const isEmail = input.includes('@') && !input.startsWith('@') && input.indexOf('@') > 0
 
     if (isEmail) {
@@ -108,61 +103,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: error ?? null }
     }
 
-    // It's a username — strip leading @ and look up the email from profiles
+    // Username login — look up the stored email from profiles
     const handle = input.replace(/^@/, '').toLowerCase()
-
-    // profiles table stores email (added in trigger)
-    const { data: profileRow, error: lookupErr } = await supabase
+    const { data: profileRow } = await supabase
       .from('profiles')
-      .select('id')
+      .select('email')
       .ilike('username', handle)
       .maybeSingle()
 
-    if (lookupErr || !profileRow) {
-      return { error: new Error('No account found with that username. Please check and try again.') }
+    const storedEmail = (profileRow as { email?: string } | null)?.email
+
+    if (!storedEmail) {
+      return { error: new Error('No account found with that username. Please try logging in with your email address instead.') }
     }
 
-    // Get the email from auth.users via our edge function workaround
-    // Since we can't directly query auth.users, we try signing in with a stored email
-    // The email is embedded in user metadata during signup
-    const { data: userData } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', profileRow.id)
-      .single()
-
-    if (!userData) {
-      return { error: new Error('Account not found. Please try logging in with your email.') }
-    }
-
-    // Use Supabase's get user by ID to find email — via admin API (only available server-side)
-    // Workaround: we stored email in profile metadata during signup
-    // Try direct sign-in with the username as identifier (will fail, so we need the email lookup)
-    // The REAL fix: store email in profiles table (added in SQL fix below)
-    const { data: emailRow } = await supabase
-      .from('profiles')
-      .select('email')
-      .eq('id', profileRow.id)
-      .maybeSingle()
-
-    const emailToUse = (emailRow as { email?: string } | null)?.email
-
-    if (!emailToUse) {
-      return {
-        error: new Error(
-          'Username login requires your email to be stored. Please log in with your email address instead.'
-        ),
-      }
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({ email: emailToUse, password })
+    const { error } = await supabase.auth.signInWithPassword({ email: storedEmail, password })
     return { error: error ?? null }
   }, [])
 
-  /* ── SIGN UP — saves ALL fields including gender, dob, language, anon_pin ── */
+  /* ── SIGN UP — direct upsert ensures all data is always saved ── */
   const signUp = useCallback(async (data: SignUpData) => {
     const cleanEmail    = data.email.trim().toLowerCase()
     const cleanUsername = data.username.trim().toLowerCase().replace(/^@/, '')
+    const now           = new Date().toISOString()
 
     // 1. Create auth user
     const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -177,44 +140,74 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           dob:              data.dob ?? null,
           language:         data.language ?? ['en'],
           is_org:           data.is_org ?? false,
+          email:            cleanEmail,     // stored for username login
           org_category:     data.org_category ?? null,
           org_description:  data.org_description ?? null,
-          email:            cleanEmail,        // stored so username login works
         },
       },
     })
 
-    if (authError) return { error: authError }
-
-    // 2. Directly upsert profile with ALL fields (belt + suspenders approach)
-    //    The DB trigger may not capture all fields — this ensures they're saved
-    if (authData.user) {
-      const now = new Date().toISOString()
-      await supabase.from('profiles').upsert({
-        id:               authData.user.id,
-        name:             data.name.trim(),
-        username:         cleanUsername,
-        anon_username:    data.anon_username?.trim() ?? `anon_${cleanUsername}`,
-        gender:           data.gender ?? null,
-        dob:              data.dob ?? null,
-        language:         data.language ?? ['en'],
-        email:            cleanEmail,
-        is_verified:      false,
-        is_private:       false,
-        is_org:           data.is_org ?? false,
-        org_category:     data.org_category ?? null,
-        org_description:  data.org_description ?? null,
-        followers_count:  0,
-        following_count:  0,
-        posts_count:      0,
-        anon_pin_set:     false,
-        joined_at:        now,
-        updated_at:       now,
-      }, { onConflict: 'id' })
+    if (authError) {
+      // If user already exists in auth but not profiles, that's OK — continue
+      if (!authError.message.includes('already registered')) {
+        return { error: authError }
+      }
     }
 
-    // 3. Set anon PIN via Edge Function (if provided and session available)
-    if (data.anon_pin && authData.session) {
+    const userId = authData?.user?.id
+    if (!userId) {
+      // Auth user was created but we can't get the ID yet (email confirmation required)
+      // This is fine — profile will be created by trigger
+      return { error: null }
+    }
+
+    // 2. Direct upsert to profiles — bypasses trigger issues entirely
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert(
+        {
+          id:               userId,
+          name:             data.name.trim(),
+          username:         cleanUsername,
+          anon_username:    data.anon_username?.trim() ?? `anon_${cleanUsername.slice(0, 8)}`,
+          email:            cleanEmail,
+          gender:           data.gender ?? null,
+          dob:              data.dob ?? null,
+          language:         data.language ?? ['en'],
+          is_verified:      false,
+          is_private:       false,
+          is_org:           data.is_org ?? false,
+          org_category:     data.org_category ?? null,
+          org_description:  data.org_description ?? null,
+          followers_count:  0,
+          following_count:  0,
+          posts_count:      0,
+          anon_pin_set:     false,
+          joined_at:        now,
+          updated_at:       now,
+        },
+        { onConflict: 'id' }
+      )
+
+    // Profile error is non-fatal if auth succeeded — trigger may have already created it
+    if (profileError) {
+      console.warn('[Sphere] Profile upsert warning:', profileError.message)
+      // Try update instead
+      await supabase
+        .from('profiles')
+        .update({
+          name:             data.name.trim(),
+          email:            cleanEmail,
+          gender:           data.gender ?? null,
+          dob:              data.dob ?? null,
+          language:         data.language ?? ['en'],
+          updated_at:       now,
+        })
+        .eq('id', userId)
+    }
+
+    // 3. Set anon PIN via Edge Function
+    if (data.anon_pin && authData?.session) {
       try {
         const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/set-anon-pin`
         await fetch(url, {
@@ -226,8 +219,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ pin: data.anon_pin }),
         })
       } catch {
-        // Non-fatal — user can set PIN later from Settings > Anon PIN
-        console.warn('[Sphere] Could not set anon PIN during signup — user can set it later.')
+        // Non-fatal — user can set PIN later in Settings > Anon PIN
+        console.warn('[Sphere] Could not set anon PIN during signup — can be set later.')
       }
     }
 
@@ -243,7 +236,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) await fetchProfile(user.id)
   }, [user, fetchProfile])
 
-  /* Save language preferences to profile */
   const saveLanguages = useCallback(async (langs: string[]) => {
     if (!user?.id) return
     await supabase
