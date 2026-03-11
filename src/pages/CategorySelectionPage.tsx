@@ -66,8 +66,12 @@ export function CategorySelectionPage() {
     if (user?.id) {
       try {
         await supabase.from("profiles")
-          .update({ language: selectedLangs, updated_at: new Date().toISOString() })
-          .eq("id", user.id);
+  .update({
+    language: selectedLangs,
+    interests: selected,
+    updated_at: new Date().toISOString()
+  })
+  .eq("id", user.id);
         if (selected.length > 0) {
           await supabase.from("user_categories").delete().eq("user_id", user.id);
           await supabase.from("user_categories").insert(selected.map(cat => ({ user_id: user.id, category: cat })));

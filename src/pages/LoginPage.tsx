@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 import {
   Eye, EyeOff, ArrowLeft, ArrowRight,
   Shield, Info, X, ChevronDown, Check,
-  AlertCircle, Loader2,
+  AlertCircle, Loader2, Phone,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -20,7 +20,7 @@ function getMaxDob(): string {
 }
 
 /* ════════════════════════════════════════
-   INLINE FIELD ERROR (small box above input)
+   INLINE FIELD ERROR
 ════════════════════════════════════════ */
 function FieldError({ msg }: { msg: string | null }) {
   if (!msg) return null;
@@ -38,15 +38,122 @@ function FieldError({ msg }: { msg: string | null }) {
 type AvailState = "idle" | "checking" | "ok" | "taken";
 function AvailBadge({ state }: { state: AvailState }) {
   if (state === "idle") return null;
-  if (state === "checking")
-    return <span className="text-[10px] text-gray-400 mt-0.5">Checking…</span>;
-  if (state === "ok")
-    return <span className="text-[10px] text-green-600 font-bold mt-0.5">✓ Available</span>;
+  if (state === "checking") return <span className="text-[10px] text-gray-400 mt-0.5">Checking…</span>;
+  if (state === "ok")       return <span className="text-[10px] text-green-600 font-bold mt-0.5">✓ Available</span>;
   return <span className="text-[10px] text-red-500 font-bold mt-0.5">✗ Already taken</span>;
 }
 
 /* ════════════════════════════════════════
-   GENDER SELECT  (no Non-binary)
+   COUNTRY DIAL CODES
+════════════════════════════════════════ */
+const DIAL_CODES = [
+  { code: "+91",  country: "IN", label: "🇮🇳 +91"  },
+  { code: "+1",   country: "US", label: "🇺🇸 +1"   },
+  { code: "+44",  country: "GB", label: "🇬🇧 +44"  },
+  { code: "+92",  country: "PK", label: "🇵🇰 +92"  },
+  { code: "+880", country: "BD", label: "🇧🇩 +880" },
+  { code: "+94",  country: "LK", label: "🇱🇰 +94"  },
+  { code: "+977", country: "NP", label: "🇳🇵 +977" },
+  { code: "+971", country: "AE", label: "🇦🇪 +971" },
+  { code: "+966", country: "SA", label: "🇸🇦 +966" },
+  { code: "+65",  country: "SG", label: "🇸🇬 +65"  },
+  { code: "+60",  country: "MY", label: "🇲🇾 +60"  },
+  { code: "+62",  country: "ID", label: "🇮🇩 +62"  },
+  { code: "+63",  country: "PH", label: "🇵🇭 +63"  },
+  { code: "+81",  country: "JP", label: "🇯🇵 +81"  },
+  { code: "+82",  country: "KR", label: "🇰🇷 +82"  },
+  { code: "+86",  country: "CN", label: "🇨🇳 +86"  },
+  { code: "+61",  country: "AU", label: "🇦🇺 +61"  },
+  { code: "+49",  country: "DE", label: "🇩🇪 +49"  },
+  { code: "+33",  country: "FR", label: "🇫🇷 +33"  },
+  { code: "+55",  country: "BR", label: "🇧🇷 +55"  },
+  { code: "+7",   country: "RU", label: "🇷🇺 +7"   },
+  { code: "+234", country: "NG", label: "🇳🇬 +234" },
+  { code: "+27",  country: "ZA", label: "🇿🇦 +27"  },
+  { code: "+20",  country: "EG", label: "🇪🇬 +20"  },
+  { code: "+98",  country: "IR", label: "🇮🇷 +98"  },
+  { code: "+90",  country: "TR", label: "🇹🇷 +90"  },
+  { code: "+39",  country: "IT", label: "🇮🇹 +39"  },
+  { code: "+34",  country: "ES", label: "🇪🇸 +34"  },
+  { code: "+31",  country: "NL", label: "🇳🇱 +31"  },
+  { code: "+64",  country: "NZ", label: "🇳🇿 +64"  },
+];
+
+/* ── Phone input with country code selector ── */
+function PhoneInput({
+  dialCode, onDialChange,
+  number, onNumberChange,
+  error,
+}: {
+  dialCode: string; onDialChange: (c: string) => void;
+  number: string;   onNumberChange: (n: string) => void;
+  error?: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const sel = DIAL_CODES.find(d => d.code === dialCode);
+  const filtered = DIAL_CODES.filter(d =>
+    d.label.toLowerCase().includes(search.toLowerCase()) ||
+    d.code.includes(search)
+  );
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false); setSearch("");
+      }
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  return (
+    <div ref={ref}>
+      <FieldError msg={error ?? null} />
+      <div className={`flex border rounded-full overflow-hidden bg-gray-50 transition-all focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400 ${error ? "border-red-300" : "border-gray-200"}`}>
+        {/* Dial code button */}
+        <button type="button" onClick={() => setOpen(o => !o)}
+          className="flex items-center gap-1 px-3 py-3 border-r border-gray-200 bg-gray-100 text-xs font-bold text-gray-700 hover:bg-gray-200 transition-colors flex-shrink-0 rounded-l-full">
+          {sel?.label ?? dialCode}
+          <ChevronDown size={11} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+        {/* Number input */}
+        <input
+          type="tel"
+          inputMode="numeric"
+          value={number}
+          onChange={e => onNumberChange(e.target.value.replace(/[^\d\s\-]/g, ""))}
+          placeholder="98765 43210"
+          className="flex-1 px-3 py-3 bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none select-text"
+        />
+      </div>
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 mt-1 bg-white border border-gray-100 rounded-2xl shadow-xl overflow-hidden"
+          style={{ width: 220, maxHeight: 240 }}>
+          <div className="p-2 border-b border-gray-100">
+            <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search code…"
+              className="w-full px-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-full focus:outline-none select-text" />
+          </div>
+          <div className="overflow-y-auto" style={{ maxHeight: 190 }}>
+            {filtered.map(d => (
+              <button key={d.code} type="button"
+                onClick={() => { onDialChange(d.code); setOpen(false); setSearch(""); }}
+                className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors ${dialCode === d.code ? "text-blue-600 font-bold bg-blue-50" : "text-gray-700"}`}>
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   GENDER SELECT
 ════════════════════════════════════════ */
 const GENDERS = [
   { value: "Male",               emoji: "👨" },
@@ -92,7 +199,7 @@ function GenderSelect({ value, onChange, error }: {
 }
 
 /* ════════════════════════════════════════
-   COUNTRY SELECT (with search)
+   COUNTRY SELECT
 ════════════════════════════════════════ */
 const COUNTRIES = [
   "India","Afghanistan","Bangladesh","Bhutan","China","Indonesia","Japan","Maldives",
@@ -111,7 +218,9 @@ function CountrySelect({ value, onChange, error }: {
   const filtered = COUNTRIES.filter(c => c.toLowerCase().includes(search.toLowerCase()));
 
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setSearch(""); } };
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setSearch(""); }
+    };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
@@ -148,14 +257,14 @@ function CountrySelect({ value, onChange, error }: {
 }
 
 /* ════════════════════════════════════════
-   PIN DOTS — using a ref for reliable value
+   PIN DOTS
 ════════════════════════════════════════ */
 interface PinDotsProps {
   label: string;
   pinValue: string;
-  compareTo?: string;           // for confirm — real-time mismatch detection
-  onChangeRef: React.MutableRefObject<string>;  // direct ref write
-  onChangeState: (v: string) => void;            // React state write
+  compareTo?: string;
+  onChangeRef: React.MutableRefObject<string>;
+  onChangeState: (v: string) => void;
   autoFocus?: boolean;
   inputId: string;
   onComplete?: () => void;
@@ -170,8 +279,8 @@ function PinDots({ label, pinValue, compareTo, onChangeRef, onChangeState, autoF
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value.replace(/\D/g, "").slice(0, 4);
-    onChangeRef.current = v;    // write to ref FIRST — no async
-    onChangeState(v);           // then update state for re-render
+    onChangeRef.current = v;
+    onChangeState(v);
     if (v.length === 4 && onComplete) setTimeout(onComplete, 80);
   };
 
@@ -265,7 +374,7 @@ function Spinner() {
 }
 
 /* ════════════════════════════════════════
-   LIVE USERNAME AVAILABILITY CHECK
+   LIVE AVAILABILITY CHECK
 ════════════════════════════════════════ */
 function useAvailability(value: string, table: "profiles", column: "username" | "anon_username") {
   const [state, setState] = useState<AvailState>("idle");
@@ -313,32 +422,27 @@ export function LoginPage() {
   const [dob,          setDob]          = useState("");
   const [gender,       setGender]       = useState("");
   const [country,      setCountry]      = useState("");
-  const [phone,        setPhone]        = useState("");
+  /* Phone: separate dial code + number, combined on submit */
+  const [phoneCode,    setPhoneCode]    = useState("+91");
+  const [phoneNum,     setPhoneNum]     = useState("");
 
   /* register step 2 */
-  const [anonUser,      setAnonUser]     = useState("");
-  /* 
-     PIN FIX: store in BOTH state (for UI renders) AND refs (for validation).
-     The stale-closure bug was: useCallback read `pinConfirm` from its deps
-     snapshot, not the live value. Refs always give the latest value.
-  */
-  const [pin,          setPin]          = useState("");
-  const [pinConfirm,   setPinConfirm]   = useState("");
-  const pinRef        = useRef("");      // always current
-  const pinConfirmRef = useRef("");      // always current
+  const [anonUser,      setAnonUser]   = useState("");
+  const [pin,           setPin]        = useState("");
+  const [pinConfirm,    setPinConfirm] = useState("");
+  const pinRef        = useRef("");
+  const pinConfirmRef = useRef("");
 
   const [showAnonInfo, setShowAnonInfo] = useState(false);
   const [regErr,       setRegErr]       = useState("");
   const [regLoading,   setRegLoading]   = useState(false);
 
-  /* field errors — per-field inline display */
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const setFE = (key: string, msg: string | null) =>
     setFieldErrors(p => { const n = { ...p }; if (msg) n[key] = msg; else delete n[key]; return n; });
 
-  /* availability */
-  const userAvail  = useAvailability(username, "profiles", "username");
-  const anonAvail  = useAvailability(anonUser,  "profiles", "anon_username");
+  const userAvail = useAvailability(username, "profiles", "username");
+  const anonAvail = useAvailability(anonUser,  "profiles", "anon_username");
 
   const maxDob = getMaxDob();
 
@@ -361,7 +465,7 @@ export function LoginPage() {
   };
 
   /* ── Validate step 1 ── */
-  const validateStep1 = (): boolean => {
+  const validateStep1 = async (): Promise<boolean> => {
     const errs: Record<string, string> = {};
     if (!name.trim())                             errs.name = "Full name is required";
     const u = username.replace(/^@/, "");
@@ -372,18 +476,43 @@ export function LoginPage() {
     if (!dob || new Date(dob) > new Date(maxDob)) errs.dob = "Must be at least 14 years old";
     if (!gender)                                  errs.gender = "Please select your gender";
     if (!country)                                 errs.country = "Please select your country";
-    if (phone && !/^\+?[0-9\s\-()]{7,15}$/.test(phone)) errs.phone = "Enter a valid phone number";
+
+    /* Phone is now REQUIRED */
+    if (!phoneNum.trim()) {
+      errs.phone = "Phone number is required";
+    } else if (!/^\d{6,14}$/.test(phoneNum.replace(/\s/g, ""))) {
+      errs.phone = "Enter a valid phone number (digits only)";
+    } else {
+      /* Check phone uniqueness in database */
+      const fullPhone = `${phoneCode}${phoneNum.replace(/\s/g, "")}`;
+      const { data: existingPhone } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("phone", fullPhone)
+        .maybeSingle();
+      if (existingPhone) errs.phone = "An account with this phone number already exists";
+    }
+
+    /* Check email uniqueness in database */
+    if (!errs.email) {
+      const { data: existingEmail } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", email.trim().toLowerCase())
+        .maybeSingle();
+      if (existingEmail) errs.email = "An account with this email already exists";
+    }
+
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
-  /* ── Validate step 2 — reads REFS not state ── */
+  /* ── Validate step 2 ── */
   const validateStep2 = (): string | null => {
     if (!/^[a-zA-Z0-9_]{6,12}$/.test(anonUser.trim()))
       return "Anonymous username: 6–12 characters (letters, numbers, underscore)";
     if (anonAvail === "taken")
       return "That anonymous username is already taken — try another";
-    /* Read from REFS — always fresh, never stale */
     const p1 = pinRef.current;
     const p2 = pinConfirmRef.current;
     if (p1.length !== 4) return "Please create a 4-digit PIN";
@@ -392,27 +521,36 @@ export function LoginPage() {
     return null;
   };
 
-  const goStep2 = () => {
-    if (!validateStep1()) return;
+  const goStep2 = async () => {
+    const valid = await validateStep1();
+    if (!valid) return;
     setRegErr("");
     setPin(""); setPinConfirm("");
     pinRef.current = ""; pinConfirmRef.current = "";
     setStep(2); setShowAnonInfo(true);
   };
 
-  /* ── Register — no useCallback to avoid stale closure ── */
+  /* ── Register ── FIXED: was missing `await signUp(` ── */
   const handleRegister = async () => {
     const err = validateStep2();
     if (err) { setRegErr(err); return; }
     setRegLoading(true); setRegErr("");
 
+    const fullPhone = `${phoneCode}${phoneNum.replace(/\s/g, "")}`;
+
+    // ✅ FIXED: `await signUp({` — was accidentally written as just `({`
     const { error } = await signUp({
-      email, password, name,
+      email,
+      password,
+      name,
       username: username.replace(/^@/, "").toLowerCase(),
       anon_username: anonUser.trim(),
-      anon_pin: pinRef.current,   // use ref — always latest
-      gender, dob, language: ["en"],
-      country, phone: phone || null,
+      anon_pin: pinRef.current,
+      gender,
+      dob,
+      language: ["en"],
+      country,
+      phone: fullPhone,
       is_org: false,
     });
 
@@ -463,7 +601,7 @@ export function LoginPage() {
 
         {/* LEFT PANEL — desktop image only */}
         <div className="hidden lg:block flex-shrink-0 relative overflow-hidden" style={{ width: "55%", height: "100dvh" }}>
-          <img src="/public/login_icon.png" alt="" draggable={false}
+          <img src="/login_icon.png" alt="" draggable={false}
             onContextMenu={e => e.preventDefault()}
             className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"/>
         </div>
@@ -580,11 +718,10 @@ export function LoginPage() {
                         <label className={lbl}>Full Name</label>
                         <FieldError msg={fieldErrors.name}/>
                         <input value={name} onChange={e => { setName(e.target.value); setFE("name", null); }}
-                          placeholder="Your full name" className={inp(!!fieldErrors.name)}
-                          autoComplete="name"/>
+                          placeholder="Your full name" className={inp(!!fieldErrors.name)} autoComplete="name"/>
                       </div>
 
-                      {/* Username + availability */}
+                      {/* Username */}
                       <div>
                         <label className={lbl}>Username</label>
                         <FieldError msg={fieldErrors.username}/>
@@ -636,6 +773,24 @@ export function LoginPage() {
                         </div>
                       </div>
 
+                      {/* Phone — REQUIRED, with country dial code */}
+                      <div className="relative">
+                        <label className={lbl}>
+                          Phone Number
+                          <span className="ml-1 text-red-500">*</span>
+                        </label>
+                        <PhoneInput
+                          dialCode={phoneCode}
+                          onDialChange={c => { setPhoneCode(c); setFE("phone", null); }}
+                          number={phoneNum}
+                          onNumberChange={n => { setPhoneNum(n); setFE("phone", null); }}
+                          error={fieldErrors.phone}
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
+                          <Phone size={9}/> One account per phone number
+                        </p>
+                      </div>
+
                       {/* DOB */}
                       <div>
                         <label className={lbl}>Date of Birth <span className="normal-case font-normal text-gray-400">(14+)</span></label>
@@ -656,17 +811,6 @@ export function LoginPage() {
                         <label className={lbl}>Country</label>
                         <CountrySelect value={country} onChange={v => { setCountry(v); setFE("country", null); }} error={fieldErrors.country}/>
                       </div>
-
-                      {/* Phone (optional) */}
-                      <div>
-                        <label className={lbl}>Phone <span className="normal-case font-normal text-gray-400">(optional)</span></label>
-                        <FieldError msg={fieldErrors.phone}/>
-                        <input type="tel" value={phone}
-                          onChange={e => { setPhone(e.target.value); setFE("phone", null); }}
-                          placeholder="+91 98765 43210"
-                          className={inp(!!fieldErrors.phone)}
-                          inputMode="tel"/>
-                      </div>
                     </div>
                   )}
 
@@ -686,7 +830,7 @@ export function LoginPage() {
                         </button>
                       </div>
 
-                      {/* Anon username + availability */}
+                      {/* Anon username */}
                       <div>
                         <label className={lbl}>Anonymous Username</label>
                         <FieldError msg={anonAvail === "taken" ? "Already taken — try another" : null}/>
@@ -709,7 +853,6 @@ export function LoginPage() {
                         </div>
                       </div>
 
-                      {/* PIN CREATE */}
                       <PinDots
                         label="Create 4-digit PIN"
                         inputId="pin-create"
@@ -720,7 +863,6 @@ export function LoginPage() {
                         onComplete={() => setTimeout(() => document.getElementById("pin-confirm")?.focus(), 120)}
                       />
 
-                      {/* PIN CONFIRM — compareTo receives the create-pin state for real-time visual check */}
                       <PinDots
                         label="Confirm PIN"
                         inputId="pin-confirm"

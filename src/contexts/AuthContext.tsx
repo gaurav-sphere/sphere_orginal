@@ -55,6 +55,10 @@ export interface SignUpData {
   gender?:           string
   dob?:              string
   language?:         string[]
+  country?:          string
+  phone?:            string | null
+  location?:         string
+  interests?:        string[]
   is_org?:           boolean
   org_category?:     string
   org_description?:  string
@@ -133,17 +137,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password: data.password,
       options: {
         data: {
-          name:             data.name.trim(),
-          username:         cleanUsername,
-          anon_username:    data.anon_username?.trim() ?? null,
-          gender:           data.gender ?? null,
-          dob:              data.dob ?? null,
-          language:         data.language ?? ['en'],
-          is_org:           data.is_org ?? false,
-          email:            cleanEmail,     // stored for username login
-          org_category:     data.org_category ?? null,
-          org_description:  data.org_description ?? null,
-        },
+  name:             data.name.trim(),
+  username:         cleanUsername,
+  anon_username:    data.anon_username?.trim() ?? null,
+  gender:           data.gender ?? null,
+  dob:              data.dob ?? null,
+  language:         data.language ?? ['en'],
+  is_org:           data.is_org ?? false,
+  email:            cleanEmail,
+
+  country:          data.country ?? null,
+  phone:            data.phone ?? null,
+  location:         data.location ?? null,
+  interests:        data.interests || [],
+
+  org_category:     data.org_category ?? null,
+  org_description:  data.org_description ?? null,
+}
       },
     })
 
@@ -166,28 +176,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .from('profiles')
       .upsert(
         {
-          id:               userId,
-          name:             data.name.trim(),
-          username:         cleanUsername,
-          anon_username:    data.anon_username?.trim() ?? `anon_${cleanUsername.slice(0, 8)}`,
-          email:            cleanEmail,
-          gender:           data.gender ?? null,
-          dob:              data.dob ?? null,
-          language:         data.language ?? ['en'],
-          is_verified:      false,
-          is_private:       false,
-          is_org:           data.is_org ?? false,
-          org_category:     data.org_category ?? null,
-          org_description:  data.org_description ?? null,
-          followers_count:  0,
-          following_count:  0,
-          posts_count:      0,
-          anon_pin_set:     false,
-          joined_at:        now,
-          updated_at:       now,
-        },
-        { onConflict: 'id' }
-      )
+  id:               userId,
+  name:             data.name.trim(),
+  username:         cleanUsername,
+  anon_username:    data.anon_username?.trim() ?? `anon_${cleanUsername.slice(0, 8)}`,
+  email:            cleanEmail,
+  gender:           data.gender ?? null,
+  dob:              data.dob ?? null,
+  language:         data.language ?? ['en'],
+  country:          data.country ?? null,
+  phone:            data.phone ?? null,
+  location:         data.location ?? null,
+  interests:        data.interests || [],
+
+  is_verified:      false,
+  is_private:       false,
+
+  is_org:           data.is_org ?? false,
+  org_category:     data.org_category ?? null,
+  org_description:  data.org_description ?? null,
+
+  followers_count:  0,
+  following_count:  0,
+  posts_count:      0,
+
+  anon_pin_set:     data.anon_pin ? true : false,
+  joined_at:        now,
+  updated_at:       now,
+},
+{ onConflict: 'id' }
+)
 
     // Profile error is non-fatal if auth succeeded — trigger may have already created it
     if (profileError) {
@@ -201,6 +219,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           gender:           data.gender ?? null,
           dob:              data.dob ?? null,
           language:         data.language ?? ['en'],
+          country:          data.country ?? null,
+          phone:            data.phone ?? null,
+          location:         data.location ?? null,
+          interests:        data.interests || [],
+          anon_pin_set:     data.anon_pin ? true : false,
           updated_at:       now,
         })
         .eq('id', userId)
