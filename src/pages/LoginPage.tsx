@@ -463,7 +463,7 @@ export function LoginPage() {
 
         {/* LEFT PANEL — desktop image only */}
         <div className="hidden lg:block flex-shrink-0 relative overflow-hidden" style={{ width: "55%", height: "100dvh" }}>
-          <img src="/src/img/login_page_img/login_icon.jpg" alt="" draggable={false}
+          <img src="/public/login_page_img/login_icon.jpg" alt="" draggable={false}
             onContextMenu={e => e.preventDefault()}
             className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"/>
         </div>
