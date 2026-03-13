@@ -15,6 +15,7 @@ const LANGS = [
   { id: "or", label: "Odia",     flag: "🇮🇳" },
   { id: "mr", label: "Marathi",  flag: "🇮🇳" },
   { id: "pa", label: "Punjabi",  flag: "🇮🇳" },
+  { id: "as", label: "Assamese", flag: "🇮🇳" },
 ];
 
 const CATEGORIES = [
