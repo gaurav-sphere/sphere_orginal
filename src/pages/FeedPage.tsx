@@ -13,6 +13,7 @@ const CATS = [
   { id: "sports",        label: "🏏 Sports" },
   { id: "science",       label: "🔬 Science & Tech" },
   { id: "entertainment", label: "🎬 Entertainment" },
+  { id: "national",      label: "🇮🇳 National" },
   { id: "world",         label: "🌍 World" },
 ];
 
@@ -136,7 +137,7 @@ function StoriesBar({ userId }: { userId: string }) {
   );
 
   return (
-    <div className="bg-white border-b border-gray-100 px-3 py-3">
+    <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-3 py-3">
       <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-0.5">
         {/* Add Story — same size as other circles, + badge top-right */}
         <button
@@ -290,18 +291,18 @@ export function FeedPage() {
 
   return (
     <AppShell>
-      <div className="page-enter mt-14 lg:mt-0">
+      <div className="page-enter">
 
         {/* Stories bar — logged-in only */}
         {user?.id && <StoriesBar userId={user.id} />}
 
         {/* Category tabs */}
-        <div className="bg-white border-b border-gray-100 sticky top-14 lg:top-0 z-20 -mt-px">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
           <div className="flex overflow-x-auto scrollbar-hide px-2 py-1 gap-1">
             {CATS.map((c) => (
               <button key={c.id} onClick={() => setActiveCategory(c.id)}
                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
-                  activeCategory === c.id ? "bg-blue-600 text-white shadow-sm" : "text-gray-500 hover:bg-gray-100"
+                  activeCategory === c.id ? "bg-blue-600 text-white shadow-sm" : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
                 }`}>
                 {c.label}
               </button>

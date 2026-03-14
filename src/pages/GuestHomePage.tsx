@@ -6,7 +6,7 @@ import { GuestShell } from "../components/GuestShell";
 import { useGuest } from "../contexts/GuestContext";
 import { fetchFeedPosts, type LivePost } from "../services/feedService";
 
-const CATS = ["top","city","sports","science","entertainment","world"];
+const CATS = ["top","city","sports","science","entertainment","national","world"];
 const GUEST_POST_LIMIT = 20;   // show gate after 20 posts
 
 /* ── Skeleton ── */

@@ -9,6 +9,7 @@
 /* ── Base font stack ── */
 :root {
   --font-body: 'Nunito', sans-serif;
+  color-scheme: light dark;
 
   /* Sphere brand colours */
   --sphere-blue:       #1D4ED8;
@@ -41,10 +42,22 @@ html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 body {
   font-family: var(--font-body);
   background-color: var(--sphere-bg);
-  color: var(--sphere-text);
+  color: #0a0a0a;          /* pitch black */
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
+  font-size: 15px;          /* +1pt base for mobile */
+}
+
+/* Desktop: slightly larger text */
+@media (min-width: 1024px) {
+  body { font-size: 16.5px; } /* +2.5pt for desktop */
+}
+
+/* Dark mode body */
+.dark body {
+  background-color: #030712;
+  color: #f9fafb;
 }
 
 /* ── Sphere logo font ── */
