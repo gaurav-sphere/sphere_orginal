@@ -1,419 +1,459 @@
-import React, { useState, useRef, useMemo, useCallback } from "react";
+import React, { useState, useRef, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router";
 import {
-  MessageCircle, Repeat2, Heart, MoreHorizontal, Bookmark,
-  Link2, X, Shield, Flag, UserMinus, Share2, Play, Volume2,
-  VolumeX, ChevronLeft, ChevronRight, Check,
+  Repeat2, MessageCircle, ThumbsUp, MoreHorizontal,
+  Bookmark, Link2, Share2, X, Shield, UserPlus, Check,
+  ChevronLeft, ChevronRight, Play, Volume2, VolumeX, Maximize2, Pause,
 } from "lucide-react";
-import { LoginGateSheet } from "./LoginGateSheet";
+import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../lib/supabase";
+import { togglePraise, toggleForward, toggleBookmark } from "../services/feedService";
 
-/* ── Types ─────────────────────────────────────────────────────────────────── */
-interface MediaItem { type: "image" | "video"; url: string; poster?: string; aspectRatio?: number }
-export interface Post {
-  id: string;
-  content: string;
-  timestamp: string;
-  user: {
-    id: string; name: string; username: string; anonUsername?: string;
-    avatar: string; isVerified?: boolean; isOrg?: boolean; orgVerified?: boolean;
-  };
-  isAnonymous?: boolean;
-  likes: number; isLiked?: boolean;
-  thoughts?: number;
-  reposts: number; isReposted?: boolean;
-  images?: string[];
-  image?: string;
-  video?: string; videoPoster?: string;
-  mediaItems?: MediaItem[];
-  category?: string;
-  isPinned?: boolean;
+interface MediaItem {
+  type: "image" | "video";
+  url: string;
+  poster?: string;
 }
 
 interface PostCardProps {
-  post: Post;
+  post: any;
   isLoggedIn?: boolean;
-  isOwn?: boolean;
-  onPraiseClick?: () => void;
 }
 
-/* ── Media grid layout ─────────────────────────────────────────────────────── */
-function MediaGrid({ items, onOpen }: { items: MediaItem[]; onOpen: (idx: number) => void }) {
-  const n = items.length;
-  if (n === 0) return null;
-
-  const Thumb = ({ item, idx, className = "" }: { item: MediaItem; idx: number; className?: string }) => (
-    <div
-      className={`relative overflow-hidden bg-gray-100 cursor-pointer group ${className}`}
-      onClick={(e) => { e.stopPropagation(); onOpen(idx); }}
+// Rounded button used for all video/image overlay controls
+function CtrlBtn({
+  onClick, children, className = "",
+}: {
+  onClick: (e: React.MouseEvent) => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-white
+        hover:bg-blue-600 active:bg-blue-700 transition-colors duration-150 ${className}`}
     >
-      {item.type === "video" ? (
-        <>
-          <img src={item.poster || item.url} alt="" className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" />
-          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-            <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center">
-              <Play size={18} className="text-white ml-0.5" fill="white" />
-            </div>
-          </div>
-        </>
-      ) : (
-        <img src={item.url} alt="" loading="lazy"
-          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" />
-      )}
-      {n > 4 && idx === 3 && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-          <span className="text-white text-xl font-bold">+{n - 4}</span>
-        </div>
-      )}
-    </div>
-  );
-
-  if (n === 1) return (
-    <div className="mt-3 rounded-xl overflow-hidden" style={{ aspectRatio: items[0].aspectRatio || "16/9", maxHeight: 400 }}>
-      <Thumb item={items[0]} idx={0} className="w-full h-full" />
-    </div>
-  );
-
-  if (n === 2) return (
-    <div className="mt-3 grid grid-cols-2 gap-0.5 rounded-xl overflow-hidden" style={{ height: 260 }}>
-      {items.map((item, i) => <Thumb key={i} item={item} idx={i} className="h-full" />)}
-    </div>
-  );
-
-  if (n === 3) return (
-    <div className="mt-3 grid grid-cols-3 gap-0.5 rounded-xl overflow-hidden" style={{ height: 240 }}>
-      <Thumb item={items[0]} idx={0} className="row-span-1 h-full col-span-2" />
-      <div className="grid grid-rows-2 gap-0.5 h-full">
-        <Thumb item={items[1]} idx={1} className="h-full" />
-        <Thumb item={items[2]} idx={2} className="h-full" />
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="mt-3 grid grid-cols-2 gap-0.5 rounded-xl overflow-hidden" style={{ maxHeight: 400 }}>
-      {items.slice(0, 4).map((item, i) => (
-        <Thumb key={i} item={item} idx={i} className="h-44" />
-      ))}
-    </div>
+      {children}
+    </button>
   );
 }
 
-/* ── Media Lightbox ────────────────────────────────────────────────────────── */
-function Lightbox({ items, startIdx, onClose }: { items: MediaItem[]; startIdx: number; onClose: () => void }) {
-  const [idx, setIdx] = useState(startIdx);
-  const [muted, setMuted] = useState(true);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const item = items[idx];
-
-  React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft") setIdx(i => Math.max(0, i - 1));
-      if (e.key === "ArrowRight") setIdx(i => Math.min(items.length - 1, i + 1));
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose, items.length]);
-
-  return (
-    <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center" onClick={onClose}>
-      <div className="relative w-full h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
-        {/* Close */}
-        <button onClick={onClose} className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/60 flex items-center justify-center text-white">
-          <X size={20} />
-        </button>
-        {/* Nav */}
-        {idx > 0 && (
-          <button onClick={() => setIdx(i => i - 1)} className="absolute left-4 z-10 w-10 h-10 rounded-full bg-black/60 flex items-center justify-center text-white">
-            <ChevronLeft size={22} />
-          </button>
-        )}
-        {idx < items.length - 1 && (
-          <button onClick={() => setIdx(i => i + 1)} className="absolute right-4 z-10 w-10 h-10 rounded-full bg-black/60 flex items-center justify-center text-white">
-            <ChevronRight size={22} />
-          </button>
-        )}
-        {/* Content */}
-        {item.type === "video" ? (
-          <div className="relative">
-            <video ref={videoRef} src={item.url} poster={item.poster} muted={muted}
-              controls autoPlay className="max-w-full max-h-[85vh] rounded-xl" style={{ objectFit: "contain" }} />
-            <button onClick={() => setMuted(!muted)} className="absolute bottom-12 right-3 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white">
-              {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
-            </button>
-          </div>
-        ) : (
-          <img src={item.url} alt="" className="max-w-full max-h-[85vh] rounded-xl object-contain" />
-        )}
-        {/* Dots */}
-        {items.length > 1 && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-1.5">
-            {items.map((_, i) => (
-              <button key={i} onClick={() => setIdx(i)}
-                className={`w-2 h-2 rounded-full transition-all ${i === idx ? "bg-white" : "bg-white/40"}`} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ── Hashtag renderer ──────────────────────────────────────────────────────── */
-function RenderContent({ text, isLoggedIn, onHashtagClick }: { text: string; isLoggedIn: boolean; onHashtagClick: (tag: string) => void }) {
+export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
   const navigate = useNavigate();
-  const parts = text.split(/(#\w+)/gu);
-  return (
-    <>
-      {parts.map((part, i) => {
-        if (/^#\w+$/u.test(part)) {
-          return (
-            <span key={i} className="text-blue-600 font-semibold cursor-pointer hover:text-blue-700 hover:underline transition-colors"
-              onClick={(e) => { e.stopPropagation(); onHashtagClick(part); }}>
-              {part}
-            </span>
-          );
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </>
-  );
-}
+  const { user } = useAuth();
+  const uid = user?.id;
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   MAIN POSTCARD
-══════════════════════════════════════════════════════════════════════════════ */
-export function PostCard({ post, isLoggedIn = false, isOwn = false }: PostCardProps) {
-  const navigate = useNavigate();
-
-  const [praised, setPraised] = useState(post.isLiked ?? false);
-  const [forwarded, setForwarded] = useState(post.isReposted ?? false);
-  const [saved, setSaved] = useState(false);
-  const [praiseCount, setPraiseCount] = useState(post.likes);
-  const [forwardCount, setForwardCount] = useState(post.reposts);
+  const [liked, setLiked] = useState(post.isLiked ?? false);
+  const [reposted, setReposted] = useState(post.isReposted ?? false);
+  const [likeCount, setLikeCount] = useState(post.likes ?? 0);
+  const [repostCount, setRepostCount] = useState(post.reposts ?? 0);
   const [showMenu, setShowMenu] = useState(false);
-  const [gateAction, setGateAction] = useState<string | null>(null);
-  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [followAnim, setFollowAnim] = useState(false);
 
+  // Media slider
+  const [mediaIdx, setMediaIdx] = useState(0);
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const [videoMuted, setVideoMuted] = useState(true);
+  const [touchStartX, setTouchStartX] = useState(0);
+  const [slideAspects, setSlideAspects] = useState<Record<number, number>>({});
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  const outerRef = useRef<HTMLDivElement>(null);
+
+  // Load real follow state from DB on mount
+  useEffect(() => {
+    if (!uid || !post.user?.id || post.isAnonymous) return;
+    supabase
+      .from("follows")
+      .select("follower_id")
+      .eq("follower_id", uid)
+      .eq("following_id", post.user.id)
+      .maybeSingle()
+      .then(({ data }) => { if (data) setFollowing(true); });
+  }, [uid, post.user?.id]);
+
+  // Unified media array
   const allMedia: MediaItem[] = useMemo(() => {
-    if (post.mediaItems?.length) return post.mediaItems;
+    if (post.mediaItems?.length > 0) return post.mediaItems;
     const items: MediaItem[] = [];
-    if (post.images) post.images.forEach(url => items.push({ type: "image", url }));
+    if (post.images) post.images.forEach((url: string) => items.push({ type: "image", url }));
     else if (post.image) items.push({ type: "image", url: post.image });
-    if (post.video) items.push({ type: "video", url: post.video, poster: post.videoPoster || post.image });
+    if (post.video) items.push({ type: "video", url: post.video, poster: post.videoPoster || post.image || undefined });
     return items;
   }, [post]);
 
-  const gate = (action: string, fn: () => void) => {
-    if (!isLoggedIn) { setGateAction(action); return; }
+  // Consistent container height = tallest slide across all loaded items
+  const containerHeight = useMemo(() => {
+    const cw = outerRef.current?.offsetWidth || 360;
+    const heights = Object.values(slideAspects).map(
+      (a) => Math.min(Math.max(Math.round(cw / a), 160), 520)
+    );
+    return heights.length > 0 ? Math.max(...heights) : 300;
+  }, [slideAspects]);
+
+  // Pause non-active videos when slide changes
+  useEffect(() => {
+    videoRefs.current.forEach((v, i) => { if (v && i !== mediaIdx) v.pause(); });
+    setVideoPlaying(false);
+  }, [mediaIdx]);
+
+  const handleImgLoad = (e: React.SyntheticEvent<HTMLImageElement>, idx: number) => {
+    const { naturalWidth: nw, naturalHeight: nh } = e.currentTarget;
+    if (nw && nh) setSlideAspects((prev) => ({ ...prev, [idx]: nw / nh }));
+  };
+  const handleVideoMeta = (e: React.SyntheticEvent<HTMLVideoElement>, idx: number) => {
+    const { videoWidth: vw, videoHeight: vh } = e.currentTarget;
+    if (vw && vh) setSlideAspects((prev) => ({ ...prev, [idx]: vw / vh }));
+  };
+
+  const handleSwipeStart = (e: React.TouchEvent) => setTouchStartX(e.targetTouches[0].clientX);
+  const handleSwipeEnd = (e: React.TouchEvent) => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) < 40) return;
+    if (diff > 0 && mediaIdx < allMedia.length - 1) setMediaIdx((p) => p + 1);
+    else if (diff < 0 && mediaIdx > 0) setMediaIdx((p) => p - 1);
+  };
+
+  const togglePlay = (e: React.MouseEvent, idx: number) => {
+    e.stopPropagation();
+    const v = videoRefs.current[idx];
+    if (!v) return;
+    if (videoPlaying) v.pause(); else v.play();
+  };
+  const toggleMute = (e: React.MouseEvent, idx: number) => {
+    e.stopPropagation();
+    const v = videoRefs.current[idx];
+    if (!v) return;
+    v.muted = !videoMuted;
+    setVideoMuted(!videoMuted);
+  };
+  const openVideoFullscreen = (e: React.MouseEvent, idx: number) => {
+    e.stopPropagation();
+    const v = videoRefs.current[idx];
+    if (!v) return;
+    if (v.requestFullscreen) v.requestFullscreen();
+    else if ((v as any).webkitEnterFullscreen) (v as any).webkitEnterFullscreen();
+    else if ((v as any).webkitRequestFullscreen) (v as any).webkitRequestFullscreen();
+  };
+
+  const requireLogin = (fn: () => void) => {
+    if (!isLoggedIn) { navigate("/login"); return; }
     fn();
   };
 
+  const handleNameClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    requireLogin(() => { if (!post.isAnonymous && post.user?.id) navigate(`/user/${post.user.id}`); });
+  };
+
+  // @mention click — look up profile by username from DB
+  const handleMentionClick = async (e: React.MouseEvent, raw: string) => {
+    e.stopPropagation();
+    if (!isLoggedIn) { navigate("/login"); return; }
+    const username = raw.replace(/^@/, "").toLowerCase();
+    const { data } = await supabase
+      .from("profiles")
+      .select("id")
+      .ilike("username", username)
+      .maybeSingle();
+    if (data?.id) navigate(`/user/${data.id}`);
+  };
+
+  // Praise — optimistic update + DB write
   const handlePraise = (e: React.MouseEvent) => {
     e.stopPropagation();
-    gate("praise", () => {
-      setPraised(p => !p);
-      setPraiseCount(c => praised ? c - 1 : c + 1);
+    requireLogin(() => {
+      const next = !liked;
+      setLiked(next);
+      setLikeCount((c: number) => next ? c + 1 : Math.max(0, c - 1));
+      if (uid) togglePraise(post.id, uid, liked).catch(() => {
+        // rollback on error
+        setLiked(!next);
+        setLikeCount((c: number) => !next ? c + 1 : Math.max(0, c - 1));
+      });
     });
   };
 
+  // Forward — optimistic update + DB write
   const handleForward = (e: React.MouseEvent) => {
     e.stopPropagation();
-    gate("forward", () => {
-      setForwarded(p => !p);
-      setForwardCount(c => forwarded ? c - 1 : c + 1);
+    requireLogin(() => {
+      const next = !reposted;
+      setReposted(next);
+      setRepostCount((c: number) => next ? c + 1 : Math.max(0, c - 1));
+      if (uid) toggleForward(post.id, uid, reposted).catch(() => {
+        setReposted(!next);
+        setRepostCount((c: number) => !next ? c + 1 : Math.max(0, c - 1));
+      });
     });
   };
 
+  // Bookmark — optimistic + DB write
   const handleBookmark = (e: React.MouseEvent) => {
     e.stopPropagation();
-    gate("bookmark", () => setSaved(p => !p));
+    requireLogin(() => {
+      const next = !saved;
+      setSaved(next);
+      if (uid) toggleBookmark(post.id, uid, saved).catch(() => setSaved(!next));
+    });
   };
 
-  const handleThought = (e: React.MouseEvent) => {
+  // Follow — write to follows table
+  const handleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    gate("thought", () => navigate(`/thoughts/${post.id}`));
+    if (!isLoggedIn || !uid || !post.user?.id) { navigate("/login"); return; }
+    if (!following) {
+      setFollowing(true);
+      setFollowAnim(true);
+      setTimeout(() => setFollowAnim(false), 1800);
+      const { error } = await supabase
+        .from("follows")
+        .insert({ follower_id: uid, following_id: post.user.id });
+      if (error) setFollowing(false);
+    } else {
+      setFollowing(false);
+      await supabase
+        .from("follows")
+        .delete()
+        .eq("follower_id", uid)
+        .eq("following_id", post.user.id);
+    }
   };
 
-  const handleHashtag = (tag: string) => {
-    if (isLoggedIn) navigate(`/feed/search?q=${tag}`);
-    else navigate(`/search?q=${tag}`);
-  };
-
-  const openProfile = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (post.isAnonymous) return;
-    gate("profile", () => navigate(`/user/${post.user.id}`));
-  };
-
-  const author = post.isAnonymous
-    ? { name: post.user.anonUsername || "Anonymous", avatar: null, verified: false }
-    : { name: post.user.name, avatar: post.user.avatar, verified: post.user.isVerified, isOrg: post.user.isOrg };
+  const formatCount = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + "K" : String(n ?? 0);
 
   return (
     <>
-      <article
-        className="bg-white border-b border-gray-100 hover:bg-gray-50/30 transition-colors cursor-pointer"
+      <div
+        className="bg-white border-b border-gray-100 px-4 py-3 relative cursor-pointer hover:bg-gray-50/50 transition-colors"
         onClick={() => navigate(`/thoughts/${post.id}`)}
       >
-        {post.isPinned && (
-          <div className="flex items-center gap-1.5 px-4 pt-2 text-xs text-gray-400 font-semibold">
-            <span>📌</span> Pinned Quote
+        {followAnim && (
+          <div className="absolute top-3 right-12 z-20 flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg pointer-events-none"
+            style={{ animation: "followPop 1.8s ease-out forwards" }}>
+            <Check size={12} /> Following!
           </div>
         )}
-        <div className="px-4 py-3 flex gap-3">
-          {/* Avatar */}
-          <div className="shrink-0 mt-0.5" onClick={openProfile}>
-            {post.isAnonymous ? (
-              <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center cursor-default">
-                <Shield size={18} className="text-gray-300" />
+        <style>{`@keyframes followPop{0%{opacity:0;transform:translateY(8px) scale(.8)}20%{opacity:1;transform:translateY(0) scale(1.05)}60%{opacity:1}100%{opacity:0;transform:translateY(-12px) scale(.9)}}`}</style>
+
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0" onClick={handleNameClick}>
+            {post.isAnonymous || !post.user?.avatar ? (
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-600 to-gray-800 flex items-center justify-center">
+                <Shield size={18} className="text-white" />
               </div>
             ) : (
-              <div className="cursor-pointer" onClick={openProfile}>
-                {author.isOrg ? (
-                  <img src={author.avatar!} alt={author.name}
-                    className="w-10 h-10 rounded-xl object-cover ring-1 ring-gray-200 hover:ring-blue-200 transition-all" />
-                ) : (
-                  <img src={author.avatar!} alt={author.name}
-                    className="w-10 h-10 rounded-full object-cover ring-1 ring-gray-200 hover:ring-blue-200 transition-all" />
-                )}
-              </div>
+              <img src={post.user.avatar} alt={post.user.name} className="w-10 h-10 rounded-full object-cover" />
             )}
           </div>
 
-          {/* Content */}
           <div className="flex-1 min-w-0">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                <span
-                  className={`font-bold text-gray-900 text-sm truncate max-w-[150px] ${!post.isAnonymous ? "hover:underline cursor-pointer" : ""}`}
-                  onClick={openProfile}
-                >
-                  {author.name}
-                </span>
-                {/* Verified badge */}
-                {!post.isAnonymous && author.verified && (
-                  author.isOrg
-                    ? <span className="inline-flex items-center justify-center w-3.5 h-3.5 bg-gray-900 rounded text-[9px] text-white font-bold">✓</span>
-                    : <span className="inline-flex items-center justify-center w-3.5 h-3.5 bg-blue-500 rounded-full text-[9px] text-white font-bold">✓</span>
-                )}
-                {post.isAnonymous && (
-                  <span className="text-[10px] bg-gray-800 text-gray-300 px-1.5 py-0.5 rounded-full font-medium">anon</span>
-                )}
-                <span className="text-gray-400 text-xs">·</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                <button onClick={handleNameClick} className="font-semibold text-gray-900 text-sm hover:underline">
+                  {post.isAnonymous ? "Anonymous" : post.user?.name}
+                </button>
+                {post.user?.isVerified && !post.isAnonymous && <span className="text-blue-500 text-xs">✓</span>}
+                <button onClick={handleNameClick} className="text-gray-400 text-xs hover:underline">{post.user?.username}</button>
+                <span className="text-gray-300 text-xs">·</span>
                 <span className="text-gray-400 text-xs">{post.timestamp}</span>
-                {post.category && (
-                  <>
-                    <span className="text-gray-300 text-xs">·</span>
-                    <span className="text-xs text-blue-500 font-medium">{post.category}</span>
-                  </>
-                )}
               </div>
-              {/* Menu */}
-              <div className="relative shrink-0">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-all"
-                >
+              <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                {!post.isAnonymous && isLoggedIn && (
+                  <button
+                    onClick={handleFollow}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all ${following ? "text-green-600 bg-green-50" : "text-blue-600 hover:bg-blue-50"}`}
+                  >
+                    {following ? <Check size={11} /> : <UserPlus size={11} />}
+                    <span>{following ? "Following" : "Follow"}</span>
+                  </button>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
                   <MoreHorizontal size={16} />
                 </button>
-                {showMenu && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-                    <div className="absolute right-0 top-8 z-40 bg-white rounded-2xl shadow-xl border border-gray-100 py-1 min-w-[160px]">
-                      {isOwn ? (
-                        <>
-                          <MenuItem icon={<span>📌</span>} label="Pin Quote" onClick={() => setShowMenu(false)} />
-                          <MenuItem icon={<span>✏️</span>} label="Edit" onClick={() => setShowMenu(false)} />
-                          <MenuItem icon={<span>🚫</span>} label="Turn off Thoughts" onClick={() => setShowMenu(false)} />
-                          <MenuItem icon={<span className="text-red-500">🗑️</span>} label="Delete" danger onClick={() => setShowMenu(false)} />
-                        </>
-                      ) : (
-                        <>
-                          <MenuItem icon={<Link2 size={14} />} label="Copy link" onClick={() => { navigator.clipboard.writeText(window.location.origin + `/thoughts/${post.id}`); setShowMenu(false); }} />
-                          <MenuItem icon={<Repeat2 size={14} />} label="Forward" onClick={(e) => { setShowMenu(false); handleForward(e); }} />
-                          <MenuItem icon={<Flag size={14} />} label="Report" onClick={() => { setShowMenu(false); navigate(`/report/${post.id}`); }} />
-                          {isLoggedIn && <MenuItem icon={<UserMinus size={14} />} label="Block user" danger onClick={() => setShowMenu(false)} />}
-                        </>
-                      )}
-                    </div>
-                  </>
-                )}
               </div>
             </div>
 
-            {/* Text */}
-            <p className="text-gray-900 text-sm leading-relaxed mt-1">
-              <RenderContent text={post.content} isLoggedIn={isLoggedIn} onHashtagClick={handleHashtag} />
+            <p className="text-gray-800 text-sm mt-1 leading-relaxed break-words">
+              {post.content.split(/(\s+)/).map((token: string, i: number) => {
+                const c = token.trim();
+                if (c.startsWith("#")) return (
+                  <span key={i}
+                    onClick={(e) => { e.stopPropagation(); if (isLoggedIn) navigate(`/feed/search?q=${encodeURIComponent(c)}`); else navigate(`/search?q=${encodeURIComponent(c)}`); }}
+                    className="text-blue-500 cursor-pointer">{token}</span>
+                );
+                if (c.startsWith("@") && c.length > 1) return (
+                  <span key={i}
+                    onClick={(e) => handleMentionClick(e, c)}
+                    className="text-blue-500 cursor-pointer font-medium">{token}</span>
+                );
+                return token;
+              })}
             </p>
 
-            {/* Media */}
-            <MediaGrid items={allMedia} onOpen={(idx) => setLightboxIdx(idx)} />
-
-            {/* Action bar */}
-            <div className="flex items-center justify-between mt-3 -ml-1.5">
-              {/* Thoughts */}
-              <button onClick={handleThought}
-                className="flex items-center gap-1.5 text-gray-400 hover:text-blue-500 transition-colors group px-1.5 py-1 rounded-xl hover:bg-blue-50"
+            {/* ── Consistent-height Media Slider ── */}
+            {allMedia.length > 0 && (
+              <div
+                ref={outerRef}
+                className="mt-2 rounded-xl overflow-hidden relative select-none"
+                style={{ height: `${containerHeight}px` }}
+                onClick={(e) => e.stopPropagation()}
+                onTouchStart={handleSwipeStart}
+                onTouchEnd={handleSwipeEnd}
               >
-                <MessageCircle size={17} className="group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-semibold">{(post.thoughts ?? 0) > 0 ? post.thoughts : ""}</span>
-              </button>
+                {allMedia.map((item, i) => (
+                  <div
+                    key={i}
+                    className="absolute inset-0 w-full h-full"
+                    style={{
+                      transform: `translateX(${(i - mediaIdx) * 100}%)`,
+                      transition: "transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+                      willChange: "transform",
+                    }}
+                  >
+                    {item.type === "image" ? (
+                      <div className="relative w-full h-full overflow-hidden cursor-pointer" onClick={(e) => { e.stopPropagation(); navigate(`/thoughts/${post.id}?fs=${i}`); }}>
+                        {/* Blurred cinematic background */}
+                        <img src={item.url} aria-hidden className="absolute inset-0 w-full h-full object-cover scale-110"
+                          style={{ filter: "blur(22px) brightness(0.35) saturate(1.8)" }} draggable={false} />
+                        {/* Main image: contained so full image is always visible */}
+                        <img src={item.url} alt="post media"
+                          className="relative z-10 w-full h-full object-contain"
+                          onLoad={(e) => handleImgLoad(e, i)}
+                          draggable={false} />
+                      </div>
+                    ) : (
+                      <div className="relative w-full h-full overflow-hidden bg-black">
+                        {/* Blurred poster background */}
+                        {item.poster && (
+                          <img src={item.poster} aria-hidden className="absolute inset-0 w-full h-full object-cover scale-110"
+                            style={{ filter: "blur(22px) brightness(0.3) saturate(1.8)" }} />
+                        )}
+                        <video
+                          ref={(el) => {
+                            videoRefs.current[i] = el;
+                            if (el) {
+                              (el as any).disableRemotePlayback = true;
+                              el.setAttribute("x-webkit-airplay", "deny");
+                            }
+                          }}
+                          src={item.url}
+                          poster={item.poster}
+                          muted={videoMuted}
+                          loop
+                          playsInline
+                          className="relative z-10 w-full h-full object-contain"
+                          onLoadedMetadata={(e) => handleVideoMeta(e, i)}
+                          onPlay={() => i === mediaIdx && setVideoPlaying(true)}
+                          onPause={() => i === mediaIdx && setVideoPlaying(false)}
+                        />
+                        {i === mediaIdx && (
+                          <>
+                            {!videoPlaying && (
+                              <div className="absolute inset-0 z-20 flex items-center justify-center" onClick={(e) => togglePlay(e, i)}>
+                                <button className="w-14 h-14 rounded-full bg-black/50 flex items-center justify-center hover:bg-blue-600 active:bg-blue-700 transition-colors">
+                                  <Play size={24} className="text-white ml-1" fill="white" />
+                                </button>
+                              </div>
+                            )}
+                            <div className="absolute bottom-2 right-2 z-20 flex gap-1.5">
+                              {videoPlaying && (
+                                <CtrlBtn onClick={(e) => togglePlay(e, i)}><Pause size={13} fill="white" /></CtrlBtn>
+                              )}
+                              <CtrlBtn onClick={(e) => toggleMute(e, i)}>
+                                {videoMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                              </CtrlBtn>
+                              <CtrlBtn onClick={(e) => openVideoFullscreen(e, i)}>
+                                <Maximize2 size={12} />
+                              </CtrlBtn>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
 
-              {/* Forward */}
-              <button onClick={handleForward}
-                className={`flex items-center gap-1.5 transition-colors group px-1.5 py-1 rounded-xl hover:bg-green-50 ${forwarded ? "text-green-500" : "text-gray-400 hover:text-green-500"}`}
-              >
-                <Repeat2 size={17} className="group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-semibold">{forwardCount > 0 ? forwardCount : ""}</span>
-              </button>
+                {/* Arrows */}
+                {allMedia.length > 1 && mediaIdx > 0 && (
+                  <button onClick={(e) => { e.stopPropagation(); setMediaIdx((p) => p - 1); }}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 active:bg-blue-700 transition-colors z-20">
+                    <ChevronLeft size={16} />
+                  </button>
+                )}
+                {allMedia.length > 1 && mediaIdx < allMedia.length - 1 && (
+                  <button onClick={(e) => { e.stopPropagation(); setMediaIdx((p) => p + 1); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 active:bg-blue-700 transition-colors z-20">
+                    <ChevronRight size={16} />
+                  </button>
+                )}
 
-              {/* Praise (like) */}
-              <button onClick={handlePraise}
-                className={`flex items-center gap-1.5 transition-colors group px-1.5 py-1 rounded-xl hover:bg-red-50 ${praised ? "text-red-500" : "text-gray-400 hover:text-red-500"}`}
-              >
-                <Heart size={17} fill={praised ? "currentColor" : "none"} className="group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-semibold">{praiseCount > 0 ? praiseCount : ""}</span>
-              </button>
+                {/* Dots */}
+                {allMedia.length > 1 && (
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5 z-20">
+                    {allMedia.map((_, i) => (
+                      <button key={i} onClick={(e) => { e.stopPropagation(); setMediaIdx(i); }}
+                        className={`rounded-full transition-all duration-200 ${i === mediaIdx ? "bg-white w-4 h-1.5" : "bg-white/60 w-1.5 h-1.5 hover:bg-white/80"}`} />
+                    ))}
+                  </div>
+                )}
 
-              {/* Bookmark */}
-              <button onClick={handleBookmark}
-                className={`flex items-center gap-1.5 transition-colors group px-1.5 py-1 rounded-xl hover:bg-yellow-50 ${saved ? "text-yellow-500" : "text-gray-400 hover:text-yellow-500"}`}
-              >
-                <Bookmark size={17} fill={saved ? "currentColor" : "none"} className="group-hover:scale-110 transition-transform" />
-              </button>
+                {/* Counter */}
+                {allMedia.length > 1 && (
+                  <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
+                    {allMedia[mediaIdx]?.type === "video" && <span className="bg-black/40 text-white text-[9px] px-1.5 py-0.5 rounded-full">🎬</span>}
+                    <span className="bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded-full">{mediaIdx + 1}/{allMedia.length}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
-              {/* Share */}
-              <button
-                onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(window.location.origin + `/thoughts/${post.id}`); }}
-                className="flex items-center gap-1.5 text-gray-400 hover:text-blue-500 transition-colors group px-1.5 py-1 rounded-xl hover:bg-blue-50"
-              >
-                <Share2 size={15} className="group-hover:scale-110 transition-transform" />
-              </button>
-            </div>
+            {/* Actions */}
+            {!post.commentsOff && (
+              <div className="flex items-center gap-4 mt-3">
+                <button onClick={(e) => { e.stopPropagation(); navigate(`/thoughts/${post.id}`); }} className="flex items-center gap-1.5 text-gray-400 hover:text-blue-500 transition-colors">
+                  <MessageCircle size={17} /><span className="text-xs">{formatCount(post.thoughts ?? 0)}</span>
+                </button>
+                <button onClick={handleForward}
+                  className={`flex items-center gap-1.5 transition-colors ${reposted ? "text-green-500" : "text-gray-400 hover:text-green-500"}`}>
+                  <Repeat2 size={17} /><span className="text-xs">{formatCount(repostCount)}</span>
+                </button>
+                <button onClick={handlePraise}
+                  className={`flex items-center gap-1.5 transition-colors ${liked ? "text-orange-500" : "text-gray-400 hover:text-orange-500"}`}>
+                  <ThumbsUp size={17} className={liked ? "fill-orange-500" : ""} /><span className="text-xs">{formatCount(likeCount)}</span>
+                </button>
+                <button onClick={handleBookmark}
+                  className={`ml-auto transition-colors ${saved ? "text-blue-600" : "text-gray-400 hover:text-blue-500"}`}>
+                  <Bookmark size={17} className={saved ? "fill-blue-600" : ""} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
-      </article>
 
-      {/* Gate sheet */}
-      {!isLoggedIn && gateAction && (
-        <LoginGateSheet action={gateAction as any} onClose={() => setGateAction(null)} />
-      )}
-
-      {/* Lightbox */}
-      {lightboxIdx !== null && (
-        <Lightbox items={allMedia} startIdx={lightboxIdx} onClose={() => setLightboxIdx(null)} />
-      )}
+        {showMenu && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+            <div className="absolute right-4 top-10 z-50 bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden w-44">
+              <button className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+                onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(`${window.location.origin}/thoughts/${post.id}`); setShowMenu(false); }}>
+                <Link2 size={15} /> Copy link
+              </button>
+              <button className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+                onClick={(e) => { e.stopPropagation(); navigator.share?.({ url: `${window.location.origin}/thoughts/${post.id}` }).catch(() => {}); setShowMenu(false); }}>
+                <Share2 size={15} /> Share
+              </button>
+              <div className="h-px bg-gray-100" />
+              <button className="flex items-center gap-3 w-full px-4 py-3 text-sm text-red-500 hover:bg-red-50"
+                onClick={(e) => { e.stopPropagation(); setShowMenu(false); }}>
+                <X size={15} /> Cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </>
-  );
-}
-
-function MenuItem({ icon, label, onClick, danger = false }: { icon: React.ReactNode; label: string; onClick: (e: React.MouseEvent) => void; danger?: boolean }) {
-  return (
-    <button onClick={(e) => { e.stopPropagation(); onClick(e); }}
-      className={`flex items-center gap-2.5 w-full px-4 py-2.5 text-sm font-medium transition-colors hover:bg-gray-50 ${danger ? "text-red-500 hover:bg-red-50" : "text-gray-700"}`}>
-      {icon}{label}
-    </button>
   );
 }
