@@ -1,254 +1,371 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router";
-import { useGuest } from "../contexts/GuestContext";
+import React, { useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router";
 import { useTheme } from "../contexts/ThemeContext";
+import {
+  CATEGORIES,
+  IcoHome, IcoSearch, IcoMapPin,
+  IcoMoon, IcoSun, IcoHelp,
+} from "../config/categories";
+import { PromotionPanel } from "./PromotionPanel";
 
-/* ═══════════════════ PHOSPHOR-STYLE ICONS (same style as AppShell) ═════════ */
-type IconProps = { size?: number; className?: string };
-const ic = (d: string) => ({ size=20, className="" }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d={d}/>
-  </svg>
-);
+/* ══════════════════════════════════════════════════════════════
+   GuestShell — layout only
 
-const IcoHome    = ic("M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H5a1 1 0 01-1-1V9.5zM9 21V12h6v9");
-const IcoSearch  = ic("M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35");
-const IcoFire    = ic("M12 2C6 8 4 12 6.5 15.5c1 1.5 2.5 2.5 5 2.5h1c2.5 0 4.5-1.5 5-4 .5-2.5-1-5-2.5-7-1 2-2.5 3-2.5 3S13 9 12 2z");
-const IcoBuildings = ({ size=20, className="" }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect x="3" y="7" width="10" height="14" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/>
-    <line x1="7" y1="11" x2="7" y2="11"/><line x1="7" y1="14" x2="7" y2="14"/><line x1="17" y1="7" x2="17" y2="7"/>
-    <line x1="17" y1="11" x2="17" y2="11"/><line x1="17" y1="15" x2="17" y2="15"/>
-  </svg>
-);
-const IcoTrophy  = ic("M8 21h8M12 17v4M6 3H3v4a6 6 0 006 6h6a6 6 0 006-6V3h-3M6 3h12");
-const IcoFlask   = ic("M9 3h6M9 3v5l-5 9a1 1 0 00.9 1.5h14.2A1 1 0 0020 17l-5-9V3");
-const IcoTV      = ic("M21 7H3a1 1 0 00-1 1v10a1 1 0 001 1h18a1 1 0 001-1V8a1 1 0 00-1-1zM8 21h8M12 17v4");
-const IcoFlag    = ic("M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7");
-const IcoGlobe   = ({ size=20, className="" }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <circle cx="12" cy="12" r="10"/>
-    <line x1="2" y1="12" x2="22" y2="12"/>
-    <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
-  </svg>
-);
-const IcoNational = ic("M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5");
-const IcoHelp    = ic("M12 22a10 10 0 110-20 10 10 0 010 20zM9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01");
-const IcoMoon    = ic("M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z");
-const IcoSun     = ({ size=20, className="" }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <circle cx="12" cy="12" r="5"/>
-    <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-  </svg>
-);
-const IcoMapPin  = ic("M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0118 0z M12 10a2 2 0 100-4 2 2 0 000 4z");
+   Changes in this version:
+   ① Dark mode ripple — View Transitions API, circle expands from
+     the toggle button outward (dark) or contracts inward (light)
+   ② Search button added to bottom of sidebar categories
+   ③ Location via timezone (no API, always works)
+   ④ h-[100dvh], fixed mobile header, fixed bottom bar
+   ⑤ Sidebar categories scroll, utilities pinned
+   ⑥ Promotion panel at lg+
+══════════════════════════════════════════════════════════════ */
 
-/* ═══════════════════════ CATEGORIES ════════════════════════════════════════ */
-const CATS = [
-  { id: "top",           label: "Top",            Icon: IcoFire      },
-  { id: "city",          label: "City",           Icon: IcoBuildings },
-  { id: "sports",        label: "Sports",         Icon: IcoTrophy    },
-  { id: "science",       label: "Science & Tech", Icon: IcoFlask     },
-  { id: "entertainment", label: "Entertainment",  Icon: IcoTV        },
-  { id: "national",      label: "National",       Icon: IcoNational  },
-  { id: "world",         label: "World",          Icon: IcoGlobe     },
-];
+/* ── Dark mode ripple CSS — pure CSS, works on all browsers ── */
+const RIPPLE_CSS = `
+  .theme-ripple {
+    position: fixed;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 99999;
+    transform: scale(0);
+    background: var(--ripple-color, #030712);
+  }
+  .theme-ripple.expanding {
+    transition: transform 0.55s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity   0.55s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: scale(1);
+    opacity: 1;
+  }
+  .theme-ripple.done {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+`;
 
 interface GuestShellProps {
-  children: React.ReactNode;
+  children:        React.ReactNode;
   activeCategory?: string;
-  onCategoryChange?: (id: string) => void;
+  locationLabel?:  string | null;
 }
 
-export function GuestShell({ children, activeCategory = "top", onCategoryChange }: GuestShellProps) {
-  const navigate = useNavigate();
-  const { location, setLocation, trackEvent } = useGuest() as any;
-  const { isDark, toggleTheme } = useTheme();
+export function GuestShell({ children, activeCategory = "top", locationLabel }: GuestShellProps) {
+  const navigate     = useNavigate();
+  const { pathname } = useLocation();
+  const mainRef      = useRef<HTMLDivElement>(null);
 
-  const [ipLocation, setIpLocation] = useState<{ city: string; country: string } | null>(
-    location ? { city: location.city, country: location.country } : null
-  );
+  /* ── Theme — safe fallback if ThemeContext not ready ── */
+  let isDark      = false;
+  let toggleTheme = () => {};
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const theme = useTheme();
+    isDark       = theme.isDark;
+    toggleTheme  = theme.toggleTheme;
+  } catch { /* silent */ }
 
-  /* ── IP-based auto location (no permission needed) ── */
-  useEffect(() => {
-    if (ipLocation) return;
-    // Try ip-api.com (free, no key needed, CORS allowed)
-    fetch("http://ip-api.com/json/?fields=city,country,countryCode,regionName")
-      .then(r => r.json())
-      .then(d => {
-        if (d.country) {
-          const loc = { city: d.city || "", country: d.country };
-          setIpLocation(loc);
-        }
-      })
-      .catch(() => {
-        // Secondary fallback: timezone detection
-        try {
-          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          const country = tz.includes("Kolkata") || tz.includes("Calcutta") ? "India"
-            : tz.split("/")[1]?.replace(/_/g, " ") || "India";
-          setIpLocation({ city: "", country });
-        } catch { setIpLocation({ city: "", country: "India" }); }
-      });
-  }, []);
+  /* ── Dark mode toggle button refs — used to get ripple origin ── */
+  const desktopThemeRef = useRef<HTMLButtonElement>(null);
+  const mobileThemeRef  = useRef<HTMLButtonElement>(null);
 
-  const handleCategoryChange = (id: string) => {
-    onCategoryChange?.(id);
-    trackEvent?.({ type: "category_select", category: id });
+  /* ── Theme ripple toggle ──
+     Creates a circle overlay that expands from the button position.
+     Dark→Light: white circle expands.
+     Light→Dark: dark circle expands.
+     Pure CSS + JS, no View Transitions API needed.
+  ── */
+  const handleThemeToggle = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const btn    = e.currentTarget;
+    const rect   = btn.getBoundingClientRect();
+    const cx     = rect.left + rect.width  / 2;
+    const cy     = rect.top  + rect.height / 2;
+
+    /* Compute diameter large enough to cover entire screen */
+    const maxDist = Math.hypot(
+      Math.max(cx, window.innerWidth  - cx),
+      Math.max(cy, window.innerHeight - cy),
+    );
+    const diameter = maxDist * 2 + 20;
+
+    /* Create overlay circle */
+    const ripple = document.createElement("div");
+    ripple.className = "theme-ripple";
+    ripple.style.cssText = `
+      width:  ${diameter}px;
+      height: ${diameter}px;
+      left:   ${cx - diameter / 2}px;
+      top:    ${cy - diameter / 2}px;
+      --ripple-color: ${isDark ? "rgba(249,250,251,0.85)" : "rgba(3,7,18,0.82)"};
+    `;
+    document.body.appendChild(ripple);
+
+    /* Trigger expand on next frame */
+    requestAnimationFrame(() => {
+      ripple.classList.add("expanding");
+
+      /* At midpoint of animation — switch theme so it's hidden under ripple */
+      setTimeout(() => {
+        toggleTheme();
+      }, 260);
+
+      /* Remove ripple after animation completes */
+      setTimeout(() => {
+        ripple.classList.add("done");
+        setTimeout(() => ripple.remove(), 160);
+      }, 500);
+    });
   };
 
-  const locationLabel = ipLocation?.city
-    ? `${ipLocation.city}, ${ipLocation.country}`
-    : ipLocation?.country || null;
+  /* ── Mobile header scroll hide/show ── */
+  const [headerVisible, setHeaderVisible] = useState(true);
+  const lastScrollY                       = useRef(0);
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const cur   = el.scrollTop;
+      const delta = cur - lastScrollY.current;
+      if (Math.abs(delta) < 6) return;
+      setHeaderVisible(cur < 40 || delta < 0);
+      lastScrollY.current = cur;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  /* ── Measure mobile header height for content padding ── */
+  const mobileHeaderRef = useRef<HTMLDivElement>(null);
+  const [mobileHeaderH, setMobileHeaderH] = useState(88);
+  const isOnSearch = pathname === "/search" || pathname === "/guest-search";
+  useEffect(() => {
+    const measure = () => {
+      if (mobileHeaderRef.current)
+        setMobileHeaderH(mobileHeaderRef.current.offsetHeight);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [isOnSearch]);
+
+  /* ── Page helpers ── */
+  const isOnHome = pathname === "/";
+  const showChips = !isOnSearch;
+
+  /* ── Home: navigate or scroll to top ── */
+  const handleHome = () => {
+    if (isOnHome) mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    else navigate("/");
+  };
+
+  const handleCategory = (id: string) => navigate(`/category/${id}`);
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950">
+    <>
+      {/* Inject ripple CSS once */}
+      <style>{RIPPLE_CSS}</style>
 
-      {/* ═══ DESKTOP HEADER ═══ */}
-      <header className="hidden lg:flex items-center bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-3 z-30 shadow-sm shrink-0">
-        {/* Left: Logo */}
-        <div className="flex-1">
-          <button onClick={() => navigate("/")} className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm group-hover:bg-blue-700 transition-colors">
-              <span className="text-white text-[17px] leading-none" style={{ fontFamily: "'Pacifico',cursive" }}>s</span>
-            </div>
-          </button>
-        </div>
-        {/* Center: site name */}
-        <div className="flex-1 flex justify-center">
-          <button onClick={() => navigate("/")} className="text-blue-600 dark:text-blue-400 text-2xl font-normal hover:opacity-80 transition-opacity"
-            style={{ fontFamily: "'Pacifico',cursive" }}>sphere</button>
-        </div>
-        {/* Right: location + login */}
-        <div className="flex-1 flex items-center justify-end gap-3">
-          {locationLabel && (
-            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 px-2.5 py-1 rounded-full">
-              <IcoMapPin size={12} className="text-blue-500" />
-              <span>{locationLabel}</span>
-            </div>
-          )}
-          <button onClick={() => navigate("/login")}
-            className="bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">
-            Login / Register
-          </button>
-        </div>
-      </header>
+      <div className="h-[100dvh] flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950 transition-colors">
 
-      {/* ═══ MOBILE HEADER ═══ */}
-      <div className="lg:hidden bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 shadow-sm shrink-0">
-        <div className="flex items-center justify-between px-4 py-3">
-          <button onClick={() => navigate("/")}
-            className="text-blue-600 dark:text-blue-400 text-xl font-normal leading-none"
-            style={{ fontFamily: "'Pacifico',cursive" }}>sphere</button>
-          {locationLabel && (
-            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-              <IcoMapPin size={11} className="text-blue-500" />
-              <span>{locationLabel}</span>
-            </div>
-          )}
-        </div>
-        {/* Mobile category chips — below header */}
-        <div className="flex gap-2 px-3 pb-2.5 overflow-x-auto scrollbar-hide">
-          {CATS.map(c => (
-            <button key={c.id} onClick={() => handleCategoryChange(c.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all ${
-                activeCategory === c.id
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
-              }`}>
-              <c.Icon size={13} />{c.label}
+        {/* ════════════════ DESKTOP HEADER ════════════════ */}
+        <header className="hidden lg:flex items-center shrink-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-3 z-30 shadow-sm">
+          <div className="flex-1">
+            <button onClick={() => navigate("/")} className="flex items-center gap-2.5 group">
+              <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm group-hover:bg-blue-700 transition-colors">
+                <span className="text-white text-[17px] leading-none" style={{ fontFamily: "'Pacifico', cursive" }}>s</span>
+              </div>
             </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ═══ BODY ═══ */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-
-        {/* ═══ DESKTOP SIDEBAR ═══ */}
-        <aside className="hidden lg:flex flex-col w-60 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 shrink-0">
-
-          {/* Section 1 (75%): Categories */}
-          <nav className="flex-[3] px-3 py-4 space-y-0.5 overflow-y-auto">
-            <p className="text-[10px] font-bold text-gray-400 dark:text-gray-600 uppercase tracking-wider px-3 mb-2">Categories</p>
-            {CATS.map(c => (
-              <button key={c.id} onClick={() => handleCategoryChange(c.id)}
-                className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  activeCategory === c.id
-                    ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400"
-                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
-                }`}>
-                <c.Icon size={19} className={activeCategory === c.id ? "text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"} />
-                {c.label}
-              </button>
-            ))}
-          </nav>
-
-          {/* Thin divider */}
-          <div className="mx-4 h-px bg-gray-100 dark:bg-gray-800" />
-
-          {/* Section 2 (25%): Utilities */}
-          <div className="flex-[1] px-3 py-3 space-y-0.5">
-            <button onClick={toggleTheme}
-              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-all">
-              {isDark ? <IcoSun size={18} className="text-yellow-500" /> : <IcoMoon size={18} className="text-gray-400" />}
-              {isDark ? "Light Mode" : "Dark Mode"}
-            </button>
-            <button className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-all">
-              <IcoHelp size={18} className="text-gray-400 dark:text-gray-500" />
-              Help
-            </button>
+          </div>
+          <div className="flex-1 flex justify-center">
+            <button onClick={() => navigate("/")}
+              className="text-blue-600 dark:text-blue-400 text-2xl font-normal hover:opacity-80 transition-opacity"
+              style={{ fontFamily: "'Pacifico', cursive" }}>sphere</button>
+          </div>
+          <div className="flex-1 flex items-center justify-end gap-3">
+            {locationLabel && (
+              <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 px-2.5 py-1 rounded-full">
+                <IcoMapPin size={12} className="text-blue-500 shrink-0" />
+                <span className="truncate max-w-[140px]">{locationLabel}</span>
+              </div>
+            )}
             <button onClick={() => navigate("/login")}
-              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-all mt-1">
+              className="bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
               Login / Register
             </button>
           </div>
-        </aside>
+        </header>
 
-        {/* ═══ MAIN CONTENT ═══ */}
-        <main className="flex-1 min-w-0 overflow-y-auto bg-gray-50 dark:bg-gray-950">
-          {children}
-        </main>
-
-        {/* ═══ DESKTOP RIGHT PANEL ═══ */}
-        <aside className="hidden xl:flex flex-col w-72 shrink-0 overflow-y-auto border-l border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-4 gap-4">
-          <div className="bg-blue-600 rounded-2xl p-5 text-white text-center">
-            <p className="text-2xl font-normal mb-1" style={{ fontFamily: "'Pacifico',cursive" }}>sphere</p>
-            <p className="text-sm font-semibold mb-1">Your world. Your voice.</p>
-            <p className="text-xs text-blue-200 mb-4">Join millions sharing thoughts across India</p>
-            <button onClick={() => navigate("/login")}
-              className="w-full py-2 bg-white text-blue-700 rounded-xl font-bold text-sm hover:bg-blue-50 transition-colors">
-              Join for free →
-            </button>
+        {/* ════════════════ MOBILE HEADER (fixed) ════════════════ */}
+        <div
+          ref={mobileHeaderRef}
+          className={`
+            lg:hidden fixed top-0 left-0 right-0 z-30
+            bg-white dark:bg-gray-900
+            border-b border-gray-100 dark:border-gray-800 shadow-sm
+            transition-transform duration-[350ms] ease-in-out
+            ${headerVisible ? "translate-y-0" : "-translate-y-full"}
+          `}
+        >
+          <div className="flex items-center justify-between px-4 py-3 gap-2">
+            <button onClick={() => navigate("/")}
+              className="text-blue-600 dark:text-blue-400 text-xl font-normal leading-none shrink-0"
+              style={{ fontFamily: "'Pacifico', cursive" }}>sphere</button>
+            <div className="flex items-center gap-2 min-w-0">
+              {/* Dark mode toggle */}
+              <button
+                ref={mobileThemeRef}
+                onClick={handleThemeToggle}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors shrink-0"
+              >
+                {isDark ? <IcoSun size={15} className="text-yellow-500" /> : <IcoMoon size={15} className="text-gray-500" />}
+              </button>
+              {/* Location */}
+              {locationLabel && (
+                <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+                  <IcoMapPin size={11} className="text-blue-500 shrink-0" />
+                  <span className="truncate max-w-[110px]">{locationLabel}</span>
+                </div>
+              )}
+            </div>
           </div>
-        </aside>
-      </div>
 
-      {/* ═══ MOBILE BOTTOM BAR (guest only) ═══ */}
-      <div className="lg:hidden bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 px-4 py-2 flex items-center gap-3 shrink-0">
-        {/* Home + Search circles */}
-        <button onClick={() => navigate("/")}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-          <IcoHome size={18} className="text-gray-600 dark:text-gray-400" />
-        </button>
-        <button onClick={() => navigate("/search")}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-          <IcoSearch size={18} className="text-gray-600 dark:text-gray-400" />
-        </button>
-        <div className="flex-1" />
-        {/* Login/Register pill */}
-        <button onClick={() => navigate("/login")}
-          className="bg-blue-600 text-white px-5 py-2 rounded-full text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm">
-          Login / Register
-        </button>
+          {/* Category chips — hidden on search page */}
+          {showChips && (
+            <div className="flex gap-2 px-3 pb-2.5 overflow-x-auto scrollbar-hide">
+              {CATEGORIES.map(c => (
+                <button key={c.id} onClick={() => handleCategory(c.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all ${
+                    activeCategory === c.id
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                  }`}>
+                  <c.Icon size={12} />
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ════════════════ BODY ════════════════ */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+
+          {/* ── LEFT SIDEBAR ── */}
+          <aside className="hidden lg:flex flex-col w-60 shrink-0 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 overflow-hidden">
+
+            {/* Categories — scrollable */}
+            <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-0.5">
+              <p className="text-[10px] font-bold text-gray-400 dark:text-gray-600 uppercase tracking-wider px-3 mb-2">
+                Categories
+              </p>
+              {CATEGORIES.map(c => (
+                <button key={c.id} onClick={() => handleCategory(c.id)}
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                    activeCategory === c.id
+                      ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400"
+                      : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
+                  }`}>
+                  <c.Icon size={19}
+                    className={activeCategory === c.id
+                      ? "text-blue-600 dark:text-blue-400 shrink-0"
+                      : "text-gray-400 dark:text-gray-500 shrink-0"} />
+                  {c.label}
+                </button>
+              ))}
+
+              {/* Search button — bottom of categories */}
+              <div className="pt-1">
+                <div className="h-px bg-gray-100 dark:bg-gray-800 mx-0 mb-1" />
+                <button
+                  onClick={() => navigate("/search")}
+                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                    isOnSearch
+                      ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400"
+                      : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
+                  }`}>
+                  <IcoSearch size={19}
+                    className={isOnSearch
+                      ? "text-blue-600 dark:text-blue-400 shrink-0"
+                      : "text-gray-400 dark:text-gray-500 shrink-0"} />
+                  Search
+                </button>
+              </div>
+            </nav>
+
+            {/* Divider */}
+            <div className="mx-4 h-px bg-gray-100 dark:bg-gray-800 shrink-0" />
+
+            {/* Utilities — pinned */}
+            <div className="shrink-0 px-3 py-3 space-y-0.5">
+              <button
+                ref={desktopThemeRef}
+                onClick={handleThemeToggle}
+                className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-all"
+              >
+                {isDark
+                  ? <IcoSun  size={18} className="text-yellow-500 shrink-0" />
+                  : <IcoMoon size={18} className="text-gray-400 shrink-0" />}
+                {isDark ? "Light Mode" : "Dark Mode"}
+              </button>
+              <button className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-all">
+                <IcoHelp size={18} className="text-gray-400 dark:text-gray-500 shrink-0" />
+                Help
+              </button>
+              <button onClick={() => navigate("/login")}
+                className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-all mt-1">
+                Login / Register
+              </button>
+            </div>
+          </aside>
+
+          {/* ── MAIN CONTENT — only scrollable element ── */}
+          <main
+            ref={mainRef}
+            className="flex-1 min-w-0 overflow-y-auto bg-gray-50 dark:bg-gray-950 pb-16 lg:pb-0"
+            style={{ paddingTop: `${mobileHeaderH}px` }}
+          >
+            <div className="lg:pt-0" style={{ paddingTop: 0 }}>
+              {children}
+            </div>
+          </main>
+
+          {/* ── RIGHT PROMOTION PANEL — lg+ ── */}
+          <aside className="hidden lg:flex flex-col w-64 shrink-0 overflow-y-auto border-l border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-3 py-4">
+            <PromotionPanel />
+          </aside>
+        </div>
+
+        {/* ════════════════ MOBILE BOTTOM BAR (fixed) ════════════════ */}
+        <div
+          className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 px-4 py-2 flex items-center gap-3"
+          style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+        >
+          <button onClick={handleHome}
+            className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${
+              isOnHome
+                ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400"
+                : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+            }`}>
+            <IcoHome size={18} />
+          </button>
+
+          <button onClick={() => navigate("/search")}
+            className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${
+              isOnSearch
+                ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400"
+                : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+            }`}>
+            <IcoSearch size={18} />
+          </button>
+
+          <div className="flex-1" />
+
+          <button onClick={() => navigate("/login")}
+            className="bg-blue-600 text-white px-5 py-2 rounded-full text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap">
+            Login / Register
+          </button>
+        </div>
+
       </div>
-    </div>
+    </>
   );
 }

@@ -133,3 +133,35 @@ body {
 .anon-status-9  { background: var(--grad-9); }
 .anon-status-10 { background: var(--grad-10); }
 .anon-status-11 { background: var(--grad-11); }
+
+/* ══════════════════════════════════════════════════════════════
+   SPHERE GLOBAL — paste these lines into your index.css
+      They go alongside your existing styles, not replacing them.
+      ══════════════════════════════════════════════════════════════ */
+
+      /* Block text selection everywhere */
+      * {
+        -webkit-user-select: none;
+          -moz-user-select:    none;
+            -ms-user-select:     none;
+              user-select:         none;
+              }
+
+              /* Allow selection only inside .allow-copy zones (quote text in PostCard) */
+              .allow-copy,
+              .allow-copy * {
+                -webkit-user-select: text;
+                  -moz-user-select:    text;
+                    -ms-user-select:     text;
+                      user-select:         text;
+                      }
+
+                      /* Allow selection inside inputs and textareas (so users can type/edit normally) */
+                      input,
+                      textarea,
+                      [contenteditable="true"] {
+                        -webkit-user-select: text;
+                          -moz-user-select:    text;
+                            -ms-user-select:     text;
+                              user-select:  text;
+                      }

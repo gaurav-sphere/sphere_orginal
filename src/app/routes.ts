@@ -1,34 +1,43 @@
 import { createBrowserRouter } from "react-router";
-import { GuestHomePage } from "../pages/GuestHomePage";
-import { SearchPage } from "../pages/SearchPage";
-import { LoggedInSearchPage } from "../pages/LoggedInSearchPage";
-import { LoginPage } from "../pages/LoginPage";
+import { GuestHomePage }        from "../pages/GuestHomePage";
+import { CategoryPage }         from "../pages/CategoryPage";
+import { GuestPostPage }        from "../pages/GuestPostPage";
+import { GuestSearchPage }      from "../pages/GuestSearchPage";
+import { LoggedInSearchPage }   from "../pages/LoggedInSearchPage";
+import { LoginPage }            from "../pages/LoginPage";
 import { CategorySelectionPage } from "../pages/CategorySelectionPage";
-import { FeedPage } from "../pages/FeedPage";
-import { CreatePostPage } from "../pages/CreatePostPage";
-import { ProfilePage } from "../pages/ProfilePage";
-import { UserProfilePage } from "../pages/UserProfilePage";
-import { ThoughtsPage } from "../pages/ThoughtsPage";
-import { MessagesPage } from "../pages/MessagesPage";
-import { StatusPage } from "../pages/StatusPage";
-import { EditProfilePage } from "../pages/EditProfilePage";
-import { FollowersPage } from "../pages/FollowersPage";
-import { SettingsPage } from "../pages/SettingsPage";
-import { AccountInfoPage } from "../pages/AccountInfoPage";
-import { BlockedListPage } from "../pages/BlockedListPage";
-import { MessageSettingsPage } from "../pages/MessageSettingsPage";
-import { ReportPostPage } from "../pages/ReportPostPage";
-import { ForgotPasswordPage } from "../pages/ForgotPasswordPage";
-import { AnonPinPage } from "../pages/AnonPinPage";
+import { FeedPage }             from "../pages/FeedPage";
+import { CreatePostPage }       from "../pages/CreatePostPage";
+import { ProfilePage }          from "../pages/ProfilePage";
+import { UserProfilePage }      from "../pages/UserProfilePage";
+import { ThoughtsPage }         from "../pages/ThoughtsPage";
+import { MessagesPage }         from "../pages/MessagesPage";
+import { StatusPage }           from "../pages/StatusPage";
+import { EditProfilePage }      from "../pages/EditProfilePage";
+import { FollowersPage }        from "../pages/FollowersPage";
+import { SettingsPage }         from "../pages/SettingsPage";
+import { AccountInfoPage }      from "../pages/AccountInfoPage";
+import { BlockedListPage }      from "../pages/BlockedListPage";
+import { MessageSettingsPage }  from "../pages/MessageSettingsPage";
+import { ReportPostPage }       from "../pages/ReportPostPage";
+import { ForgotPasswordPage }   from "../pages/ForgotPasswordPage";
+import { AnonPinPage }          from "../pages/AnonPinPage";
 
 export const router = createBrowserRouter([
+  /* ── Guest routes ── */
   { path: "/",                          Component: GuestHomePage },
-  { path: "/search",                    Component: SearchPage },
-  { path: "/feed/search",               Component: LoggedInSearchPage },
+  { path: "/category/:id",              Component: CategoryPage },
+  { path: "/post/:id",                  Component: GuestPostPage },
+  { path: "/search",                    Component: GuestSearchPage },
+
+  /* ── Auth ── */
   { path: "/login",                     Component: LoginPage },
   { path: "/forgot-password",           Component: ForgotPasswordPage },
+
+  /* ── Logged-in routes ── */
   { path: "/categories",                Component: CategorySelectionPage },
   { path: "/feed",                      Component: FeedPage },
+  { path: "/feed/search",               Component: LoggedInSearchPage },
   { path: "/create-post",               Component: CreatePostPage },
   { path: "/profile",                   Component: ProfilePage },
   { path: "/profile/edit",              Component: EditProfilePage },

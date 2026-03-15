@@ -16,11 +16,10 @@ interface MediaItem {
 }
 
 interface PostCardProps {
-  post: any;
+  post:        any;
   isLoggedIn?: boolean;
 }
 
-// Rounded button used for all video/image overlay controls
 function CtrlBtn({
   onClick, children, className = "",
 }: {
@@ -42,27 +41,39 @@ function CtrlBtn({
 export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const uid = user?.id;
+  const uid      = user?.id;
 
-  const [liked, setLiked] = useState(post.isLiked ?? false);
-  const [reposted, setReposted] = useState(post.isReposted ?? false);
-  const [likeCount, setLikeCount] = useState(post.likes ?? 0);
-  const [repostCount, setRepostCount] = useState(post.reposts ?? 0);
-  const [showMenu, setShowMenu] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [following, setFollowing] = useState(false);
-  const [followAnim, setFollowAnim] = useState(false);
+  const [liked,       setLiked]       = useState(post.isLiked   ?? false);
+  const [reposted,    setReposted]    = useState(post.isReposted ?? false);
+  const [likeCount,   setLikeCount]   = useState(post.likes     ?? 0);
+  const [repostCount, setRepostCount] = useState(post.reposts   ?? 0);
+  const [showMenu,    setShowMenu]    = useState(false);
+  const [saved,       setSaved]       = useState(false);
+  const [following,   setFollowing]   = useState(false);
+  const [followAnim,  setFollowAnim]  = useState(false);
 
-  // Media slider
-  const [mediaIdx, setMediaIdx] = useState(0);
+  /* ── Guest gate — direct redirect to login ── */
+  const requireLogin = (fn?: () => void) => {
+    if (!isLoggedIn) { navigate("/login"); return; }
+    fn?.();
+  };
+
+  /* ── Post navigation:
+     - Guest  → /post/:id   (GuestPostPage — restricted view)
+     - Logged → /thoughts/:id (full ThoughtsPage)
+  ── */
+  const postRoute = isLoggedIn ? `/thoughts/${post.id}` : `/post/${post.id}`;
+
+  /* ── Media slider ── */
+  const [mediaIdx,     setMediaIdx]     = useState(0);
   const [videoPlaying, setVideoPlaying] = useState(false);
-  const [videoMuted, setVideoMuted] = useState(true);
-  const [touchStartX, setTouchStartX] = useState(0);
+  const [videoMuted,   setVideoMuted]   = useState(true);
+  const [touchStartX,  setTouchStartX]  = useState(0);
   const [slideAspects, setSlideAspects] = useState<Record<number, number>>({});
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-  const outerRef = useRef<HTMLDivElement>(null);
+  const outerRef  = useRef<HTMLDivElement>(null);
 
-  // Load real follow state from DB on mount
+  /* Load real follow state from DB on mount */
   useEffect(() => {
     if (!uid || !post.user?.id || post.isAnonymous) return;
     supabase
@@ -74,7 +85,7 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
       .then(({ data }) => { if (data) setFollowing(true); });
   }, [uid, post.user?.id]);
 
-  // Unified media array
+  /* Unified media array */
   const allMedia: MediaItem[] = useMemo(() => {
     if (post.mediaItems?.length > 0) return post.mediaItems;
     const items: MediaItem[] = [];
@@ -84,16 +95,16 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
     return items;
   }, [post]);
 
-  // Consistent container height = tallest slide across all loaded items
+  /* Consistent container height = tallest slide */
   const containerHeight = useMemo(() => {
-    const cw = outerRef.current?.offsetWidth || 360;
+    const cw      = outerRef.current?.offsetWidth || 360;
     const heights = Object.values(slideAspects).map(
       (a) => Math.min(Math.max(Math.round(cw / a), 160), 520)
     );
     return heights.length > 0 ? Math.max(...heights) : 300;
   }, [slideAspects]);
 
-  // Pause non-active videos when slide changes
+  /* Pause non-active videos on slide change */
   useEffect(() => {
     videoRefs.current.forEach((v, i) => { if (v && i !== mediaIdx) v.pause(); });
     setVideoPlaying(false);
@@ -109,11 +120,11 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
   };
 
   const handleSwipeStart = (e: React.TouchEvent) => setTouchStartX(e.targetTouches[0].clientX);
-  const handleSwipeEnd = (e: React.TouchEvent) => {
+  const handleSwipeEnd   = (e: React.TouchEvent) => {
     const diff = touchStartX - e.changedTouches[0].clientX;
     if (Math.abs(diff) < 40) return;
     if (diff > 0 && mediaIdx < allMedia.length - 1) setMediaIdx((p) => p + 1);
-    else if (diff < 0 && mediaIdx > 0) setMediaIdx((p) => p - 1);
+    else if (diff < 0 && mediaIdx > 0)              setMediaIdx((p) => p - 1);
   };
 
   const togglePlay = (e: React.MouseEvent, idx: number) => {
@@ -133,22 +144,19 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
     e.stopPropagation();
     const v = videoRefs.current[idx];
     if (!v) return;
-    if (v.requestFullscreen) v.requestFullscreen();
-    else if ((v as any).webkitEnterFullscreen) (v as any).webkitEnterFullscreen();
-    else if ((v as any).webkitRequestFullscreen) (v as any).webkitRequestFullscreen();
+    if (v.requestFullscreen)                       v.requestFullscreen();
+    else if ((v as any).webkitEnterFullscreen)     (v as any).webkitEnterFullscreen();
+    else if ((v as any).webkitRequestFullscreen)   (v as any).webkitRequestFullscreen();
   };
 
-  const requireLogin = (fn: () => void) => {
-    if (!isLoggedIn) { navigate("/login"); return; }
-    fn();
-  };
-
+  /* ── Name/avatar click ── */
   const handleNameClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    requireLogin(() => { if (!post.isAnonymous && post.user?.id) navigate(`/user/${post.user.id}`); });
+    if (!isLoggedIn) { navigate("/login"); return; }
+    if (!post.isAnonymous && post.user?.id) navigate(`/user/${post.user.id}`);
   };
 
-  // @mention click — look up profile by username from DB
+  /* ── @mention click ── */
   const handleMentionClick = async (e: React.MouseEvent, raw: string) => {
     e.stopPropagation();
     if (!isLoggedIn) { navigate("/login"); return; }
@@ -161,7 +169,7 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
     if (data?.id) navigate(`/user/${data.id}`);
   };
 
-  // Praise — optimistic update + DB write
+  /* ── Actions ── */
   const handlePraise = (e: React.MouseEvent) => {
     e.stopPropagation();
     requireLogin(() => {
@@ -169,14 +177,12 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
       setLiked(next);
       setLikeCount((c: number) => next ? c + 1 : Math.max(0, c - 1));
       if (uid) togglePraise(post.id, uid, liked).catch(() => {
-        // rollback on error
         setLiked(!next);
         setLikeCount((c: number) => !next ? c + 1 : Math.max(0, c - 1));
       });
     });
   };
 
-  // Forward — optimistic update + DB write
   const handleForward = (e: React.MouseEvent) => {
     e.stopPropagation();
     requireLogin(() => {
@@ -190,7 +196,6 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
     });
   };
 
-  // Bookmark — optimistic + DB write
   const handleBookmark = (e: React.MouseEvent) => {
     e.stopPropagation();
     requireLogin(() => {
@@ -200,10 +205,10 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
     });
   };
 
-  // Follow — write to follows table
   const handleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isLoggedIn || !uid || !post.user?.id) { navigate("/login"); return; }
+    if (!isLoggedIn) { navigate("/login"); return; }
+    if (!uid || !post.user?.id) return;
     if (!following) {
       setFollowing(true);
       setFollowAnim(true);
@@ -227,8 +232,8 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
   return (
     <>
       <div
-        className="bg-white border-b border-gray-100 px-4 py-3 relative cursor-pointer hover:bg-gray-50/50 transition-colors"
-        onClick={() => navigate(`/thoughts/${post.id}`)}
+        className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 py-3 relative cursor-pointer hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors"
+        onClick={() => navigate(postRoute)}
       >
         {followAnim && (
           <div className="absolute top-3 right-12 z-20 flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg pointer-events-none"
@@ -239,6 +244,7 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
         <style>{`@keyframes followPop{0%{opacity:0;transform:translateY(8px) scale(.8)}20%{opacity:1;transform:translateY(0) scale(1.05)}60%{opacity:1}100%{opacity:0;transform:translateY(-12px) scale(.9)}}`}</style>
 
         <div className="flex items-start gap-3">
+          {/* Avatar */}
           <div className="flex-shrink-0" onClick={handleNameClick}>
             {post.isAnonymous || !post.user?.avatar ? (
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-600 to-gray-800 flex items-center justify-center">
@@ -250,38 +256,54 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
           </div>
 
           <div className="flex-1 min-w-0">
+            {/* Header row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                <button onClick={handleNameClick} className="font-semibold text-gray-900 text-sm hover:underline">
+                <button onClick={handleNameClick} className="font-semibold text-gray-900 dark:text-white text-sm hover:underline">
                   {post.isAnonymous ? "Anonymous" : post.user?.name}
                 </button>
-                {post.user?.isVerified && !post.isAnonymous && <span className="text-blue-500 text-xs">✓</span>}
-                <button onClick={handleNameClick} className="text-gray-400 text-xs hover:underline">{post.user?.username}</button>
-                <span className="text-gray-300 text-xs">·</span>
+                {post.user?.isVerified && !post.isAnonymous && (
+                  <span className="text-blue-500 text-xs">✓</span>
+                )}
+                <button onClick={handleNameClick} className="text-gray-400 text-xs hover:underline">
+                  {post.user?.username}
+                </button>
+                <span className="text-gray-300 dark:text-gray-700 text-xs">·</span>
                 <span className="text-gray-400 text-xs">{post.timestamp}</span>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                {/* Follow button — logged-in only */}
                 {!post.isAnonymous && isLoggedIn && (
                   <button
                     onClick={handleFollow}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all ${following ? "text-green-600 bg-green-50" : "text-blue-600 hover:bg-blue-50"}`}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-all ${
+                      following ? "text-green-600 bg-green-50 dark:bg-green-950" : "text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+                    }`}
                   >
                     {following ? <Check size={11} /> : <UserPlus size={11} />}
                     <span>{following ? "Following" : "Follow"}</span>
                   </button>
                 )}
-                <button onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                  className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
                   <MoreHorizontal size={16} />
                 </button>
               </div>
             </div>
 
-            <p className="text-gray-800 text-sm mt-1 leading-relaxed break-words">
+            {/* Post text */}
+            <p className="text-gray-800 dark:text-gray-200 text-sm mt-1 leading-relaxed break-words">
               {post.content.split(/(\s+)/).map((token: string, i: number) => {
                 const c = token.trim();
                 if (c.startsWith("#")) return (
                   <span key={i}
-                    onClick={(e) => { e.stopPropagation(); if (isLoggedIn) navigate(`/feed/search?q=${encodeURIComponent(c)}`); else navigate(`/search?q=${encodeURIComponent(c)}`); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isLoggedIn) navigate(`/feed/search?q=${encodeURIComponent(c)}`);
+                      else navigate(`/search?q=${encodeURIComponent(c)}`);
+                    }}
                     className="text-blue-500 cursor-pointer">{token}</span>
                 );
                 if (c.startsWith("@") && c.length > 1) return (
@@ -293,7 +315,7 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
               })}
             </p>
 
-            {/* ── Consistent-height Media Slider ── */}
+            {/* Media slider */}
             {allMedia.length > 0 && (
               <div
                 ref={outerRef}
@@ -308,17 +330,18 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
                     key={i}
                     className="absolute inset-0 w-full h-full"
                     style={{
-                      transform: `translateX(${(i - mediaIdx) * 100}%)`,
+                      transform:  `translateX(${(i - mediaIdx) * 100}%)`,
                       transition: "transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
                       willChange: "transform",
                     }}
                   >
                     {item.type === "image" ? (
-                      <div className="relative w-full h-full overflow-hidden cursor-pointer" onClick={(e) => { e.stopPropagation(); navigate(`/thoughts/${post.id}?fs=${i}`); }}>
-                        {/* Blurred cinematic background */}
+                      <div
+                        className="relative w-full h-full overflow-hidden cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); navigate(`${postRoute}?fs=${i}`); }}
+                      >
                         <img src={item.url} aria-hidden className="absolute inset-0 w-full h-full object-cover scale-110"
                           style={{ filter: "blur(22px) brightness(0.35) saturate(1.8)" }} draggable={false} />
-                        {/* Main image: contained so full image is always visible */}
                         <img src={item.url} alt="post media"
                           className="relative z-10 w-full h-full object-contain"
                           onLoad={(e) => handleImgLoad(e, i)}
@@ -326,7 +349,6 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
                       </div>
                     ) : (
                       <div className="relative w-full h-full overflow-hidden bg-black">
-                        {/* Blurred poster background */}
                         {item.poster && (
                           <img src={item.poster} aria-hidden className="absolute inset-0 w-full h-full object-cover scale-110"
                             style={{ filter: "blur(22px) brightness(0.3) saturate(1.8)" }} />
@@ -379,13 +401,13 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
                 {/* Arrows */}
                 {allMedia.length > 1 && mediaIdx > 0 && (
                   <button onClick={(e) => { e.stopPropagation(); setMediaIdx((p) => p - 1); }}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 active:bg-blue-700 transition-colors z-20">
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 z-20">
                     <ChevronLeft size={16} />
                   </button>
                 )}
                 {allMedia.length > 1 && mediaIdx < allMedia.length - 1 && (
                   <button onClick={(e) => { e.stopPropagation(); setMediaIdx((p) => p + 1); }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 active:bg-blue-700 transition-colors z-20">
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 z-20">
                     <ChevronRight size={16} />
                   </button>
                 )}
@@ -403,27 +425,41 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
                 {/* Counter */}
                 {allMedia.length > 1 && (
                   <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
-                    {allMedia[mediaIdx]?.type === "video" && <span className="bg-black/40 text-white text-[9px] px-1.5 py-0.5 rounded-full">🎬</span>}
-                    <span className="bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded-full">{mediaIdx + 1}/{allMedia.length}</span>
+                    {allMedia[mediaIdx]?.type === "video" && (
+                      <span className="bg-black/40 text-white text-[9px] px-1.5 py-0.5 rounded-full">🎬</span>
+                    )}
+                    <span className="bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                      {mediaIdx + 1}/{allMedia.length}
+                    </span>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Actions */}
+            {/* Action buttons */}
             {!post.commentsOff && (
               <div className="flex items-center gap-4 mt-3">
-                <button onClick={(e) => { e.stopPropagation(); navigate(`/thoughts/${post.id}`); }} className="flex items-center gap-1.5 text-gray-400 hover:text-blue-500 transition-colors">
-                  <MessageCircle size={17} /><span className="text-xs">{formatCount(post.thoughts ?? 0)}</span>
+                {/* Comment — guests go to /post/:id */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); navigate(postRoute); }}
+                  className="flex items-center gap-1.5 text-gray-400 hover:text-blue-500 transition-colors"
+                >
+                  <MessageCircle size={17} />
+                  <span className="text-xs">{formatCount(post.thoughts ?? 0)}</span>
                 </button>
+
                 <button onClick={handleForward}
                   className={`flex items-center gap-1.5 transition-colors ${reposted ? "text-green-500" : "text-gray-400 hover:text-green-500"}`}>
-                  <Repeat2 size={17} /><span className="text-xs">{formatCount(repostCount)}</span>
+                  <Repeat2 size={17} />
+                  <span className="text-xs">{formatCount(repostCount)}</span>
                 </button>
+
                 <button onClick={handlePraise}
                   className={`flex items-center gap-1.5 transition-colors ${liked ? "text-orange-500" : "text-gray-400 hover:text-orange-500"}`}>
-                  <ThumbsUp size={17} className={liked ? "fill-orange-500" : ""} /><span className="text-xs">{formatCount(likeCount)}</span>
+                  <ThumbsUp size={17} className={liked ? "fill-orange-500" : ""} />
+                  <span className="text-xs">{formatCount(likeCount)}</span>
                 </button>
+
                 <button onClick={handleBookmark}
                   className={`ml-auto transition-colors ${saved ? "text-blue-600" : "text-gray-400 hover:text-blue-500"}`}>
                   <Bookmark size={17} className={saved ? "fill-blue-600" : ""} />
@@ -433,21 +469,36 @@ export function PostCard({ post, isLoggedIn = false }: PostCardProps) {
           </div>
         </div>
 
+        {/* Three-dot menu */}
         {showMenu && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-            <div className="absolute right-4 top-10 z-50 bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden w-44">
-              <button className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
-                onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(`${window.location.origin}/thoughts/${post.id}`); setShowMenu(false); }}>
+            <div className="absolute right-4 top-10 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl overflow-hidden w-44">
+              <button
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard?.writeText(`${window.location.origin}${postRoute}`);
+                  setShowMenu(false);
+                }}
+              >
                 <Link2 size={15} /> Copy link
               </button>
-              <button className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
-                onClick={(e) => { e.stopPropagation(); navigator.share?.({ url: `${window.location.origin}/thoughts/${post.id}` }).catch(() => {}); setShowMenu(false); }}>
+              <button
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.share?.({ url: `${window.location.origin}${postRoute}` }).catch(() => {});
+                  setShowMenu(false);
+                }}
+              >
                 <Share2 size={15} /> Share
               </button>
-              <div className="h-px bg-gray-100" />
-              <button className="flex items-center gap-3 w-full px-4 py-3 text-sm text-red-500 hover:bg-red-50"
-                onClick={(e) => { e.stopPropagation(); setShowMenu(false); }}>
+              <div className="h-px bg-gray-100 dark:bg-gray-700" />
+              <button
+                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+                onClick={(e) => { e.stopPropagation(); setShowMenu(false); }}
+              >
                 <X size={15} /> Cancel
               </button>
             </div>
