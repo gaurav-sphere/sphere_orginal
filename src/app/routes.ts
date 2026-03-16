@@ -3,6 +3,8 @@ import { GuestHomePage }        from "../pages/GuestHomePage";
 import { CategoryPage }         from "../pages/CategoryPage";
 import { GuestPostPage }        from "../pages/GuestPostPage";
 import { GuestSearchPage }      from "../pages/GuestSearchPage";
+import { QuotePage }            from "../pages/QuotePage";
+import { MediaPage }            from "../pages/MediaPage";
 import { LoggedInSearchPage }   from "../pages/LoggedInSearchPage";
 import { LoginPage }            from "../pages/LoginPage";
 import { CategorySelectionPage } from "../pages/CategorySelectionPage";
@@ -10,7 +12,7 @@ import { FeedPage }             from "../pages/FeedPage";
 import { CreatePostPage }       from "../pages/CreatePostPage";
 import { ProfilePage }          from "../pages/ProfilePage";
 import { UserProfilePage }      from "../pages/UserProfilePage";
-import { ThoughtsPage }         from "../pages/ThoughtsPage";
+import { LoginPostPage }        from "../pages/LoginPostPage";
 import { MessagesPage }         from "../pages/MessagesPage";
 import { StatusPage }           from "../pages/StatusPage";
 import { EditProfilePage }      from "../pages/EditProfilePage";
@@ -27,8 +29,13 @@ export const router = createBrowserRouter([
   /* ── Guest routes ── */
   { path: "/",                          Component: GuestHomePage },
   { path: "/category/:id",              Component: CategoryPage },
-  { path: "/post/:id",                  Component: GuestPostPage },
   { path: "/search",                    Component: GuestSearchPage },
+
+  /* ── Canonical quote URL (smart — guest or logged-in) ── */
+  { path: "/quote/:id",                 Component: QuotePage },
+
+  /* ── Media viewer ── */
+  { path: "/media/:postId/:index",      Component: MediaPage },
 
   /* ── Auth ── */
   { path: "/login",                     Component: LoginPage },
@@ -44,7 +51,8 @@ export const router = createBrowserRouter([
   { path: "/profile/followers/:userId", Component: FollowersPage },
   { path: "/user/:userId",              Component: UserProfilePage },
   { path: "/user/:userId/followers",    Component: FollowersPage },
-  { path: "/thoughts/:id",              Component: ThoughtsPage },
+  { path: "/thoughts/:id",              Component: LoginPostPage }, // legacy redirect
+  { path: "/post/:id",                  Component: GuestPostPage }, // legacy redirect
   { path: "/report/:id",                Component: ReportPostPage },
   { path: "/messages",                  Component: MessagesPage },
   { path: "/messages/blocked",          Component: BlockedListPage },
