@@ -7,7 +7,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
 import { fetchFeedPosts, type LivePost } from "../services/feedService";
 
-const CATS = [
+/*const CATS = [
   { id: "top",           label: "🔥 Top" },
   { id: "city",          label: "🏙️ City" },
   { id: "sports",        label: "🏏 Sports" },
@@ -16,7 +16,7 @@ const CATS = [
   { id: "national",      label: "🇮🇳 National" },
   { id: "world",         label: "🌍 World" },
 ];
-
+*/
 /* ─────────────────────── Stories Bar ───────────────────────────────────── */
 interface StoryItem {
   id: string;
@@ -204,22 +204,17 @@ function StoriesBar({ userId }: { userId: string }) {
 }
 
 /* ── Skeleton ── */
+/* ── Inline skeleton (until PostCard phase) ── */
 function PostSkeleton() {
   return (
-    <div className="bg-white border-b border-gray-100 px-4 py-3">
+    <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 py-3 animate-pulse">
       <div className="flex gap-3">
-        <div className="skeleton w-10 h-10 rounded-full shrink-0" />
+        <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 shrink-0" />
         <div className="flex-1 space-y-2">
-          <div className="flex gap-2">
-            <div className="skeleton h-3.5 w-28 rounded" />
-            <div className="skeleton h-3.5 w-16 rounded" />
-          </div>
-          <div className="skeleton h-3 w-full rounded" />
-          <div className="skeleton h-3 w-5/6 rounded" />
-          <div className="skeleton h-40 w-full rounded-xl mt-2" />
-          <div className="flex gap-5 mt-2">
-            {[0,1,2].map(i => <div key={i} className="skeleton h-5 w-10 rounded" />)}
-          </div>
+          <div className="h-3.5 w-32 rounded bg-gray-200 dark:bg-gray-700" />
+          <div className="h-3 w-full rounded bg-gray-200 dark:bg-gray-700" />
+          <div className="h-3 w-4/5 rounded bg-gray-200 dark:bg-gray-700" />
+          <div className="h-32 w-full rounded-xl bg-gray-200 dark:bg-gray-700 mt-2" />
         </div>
       </div>
     </div>
@@ -296,19 +291,7 @@ export function FeedPage() {
         {/* Stories bar — logged-in only */}
         {user?.id && <StoriesBar userId={user.id} />}
 
-        {/* Category tabs */}
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 sticky top-0 z-20">
-          <div className="flex overflow-x-auto scrollbar-hide px-2 py-1 gap-1">
-            {CATS.map((c) => (
-              <button key={c.id} onClick={() => setActiveCategory(c.id)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
-                  activeCategory === c.id ? "bg-blue-600 text-white shadow-sm" : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-                }`}>
-                {c.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Category tabs removed for logged-in users */}
 
         {loading ? (
           Array.from({ length: 5 }).map((_, i) => <PostSkeleton key={i} />)

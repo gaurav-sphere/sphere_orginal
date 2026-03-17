@@ -91,6 +91,74 @@ const FILTERS = [
 interface TrendingTag { tag: string; count: number; }
 
 /* ── Inline skeleton ── */
+/* ── Filter tabs with left/right arrow scroll for desktop ── */
+function GuestFilterTabs({ filters, activeFilter, setActiveFilter, setGateAction }: {
+  filters: typeof FILTERS;
+  activeFilter: string;
+  setActiveFilter: (id: string) => void;
+  setGateAction:   (a: string | null) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canLeft,  setCanLeft]  = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const checkScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 4);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  };
+
+  useEffect(() => {
+    checkScroll();
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", checkScroll, { passive: true });
+    window.addEventListener("resize", checkScroll);
+    return () => { el.removeEventListener("scroll", checkScroll); window.removeEventListener("resize", checkScroll); };
+  }, []);
+
+  const scroll = (dir: "left" | "right") => {
+    scrollRef.current?.scrollBy({ left: dir === "right" ? 160 : -160, behavior: "smooth" });
+  };
+
+  return (
+    <div className="relative flex items-center pb-3">
+      {canLeft && (
+        <button onClick={() => scroll("left")}
+          className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors z-10 mr-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+      )}
+      <div ref={scrollRef} className="flex gap-1 overflow-x-auto scrollbar-hide flex-1">
+        {filters.map(f => {
+          const active = activeFilter === f.id && !f.locked;
+          return (
+            <button key={f.id}
+              onClick={() => { if (f.locked) { setGateAction("search_people"); return; } setActiveFilter(f.id); }}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+                active ? "bg-blue-600 text-white shadow-sm" : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+              }`}>
+              <f.Icon size={12} className={active ? "text-white" : "text-gray-500 dark:text-gray-400"} />
+              {f.label}{f.locked ? " 🔒" : ""}
+            </button>
+          );
+        })}
+      </div>
+      {canRight && (
+        <button onClick={() => scroll("right")}
+          className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors z-10 ml-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-600 dark:text-gray-300">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Skeleton() {
   return (
     <>
@@ -249,29 +317,13 @@ function SearchContent({
           )}
         </div>
 
-        {/* Filter tabs — horizontal scroll */}
-        <div className="flex gap-1 overflow-x-auto scrollbar-hide pb-3">
-          {FILTERS.map(f => {
-            const active = activeFilter === f.id && !f.locked;
-            return (
-              <button
-                key={f.id}
-                onClick={() => {
-                  if (f.locked) { setGateAction("search_people"); return; }
-                  setActiveFilter(f.id);
-                }}
-                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
-                  active
-                    ? "bg-blue-600 text-white shadow-sm"
-                    : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
-                }`}
-              >
-                <f.Icon size={12} className={active ? "text-white" : "text-gray-500 dark:text-gray-400"} />
-                {f.label}{f.locked ? " 🔒" : ""}
-              </button>
-            );
-          })}
-        </div>
+        {/* Filter tabs — horizontal scroll with arrows */}
+        <GuestFilterTabs
+          filters={FILTERS}
+          activeFilter={activeFilter}
+          setActiveFilter={setActiveFilter}
+          setGateAction={setGateAction}
+        />
       </div>
 
       {/* ── Content ── */}

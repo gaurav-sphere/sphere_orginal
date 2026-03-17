@@ -15,7 +15,7 @@ export function UserProfilePage() {
 
   return (
     <AppShell>
-      <div className="page-enter mt-14 lg:mt-0 min-h-screen bg-white">
+      <div className="page-enter lg:mt-0 min-h-screen bg-white">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-14 lg:top-0 bg-white z-10">
           <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors">

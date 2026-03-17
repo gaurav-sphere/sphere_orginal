@@ -11,22 +11,27 @@ import { supabase } from "../lib/supabase";
 import { LoginPromotionPanel } from "./LoginPromotionPanel";
 
 /* ══════════════════════════════════════════════════════════════
-   VIEW TRANSITION CSS — injected once for circular dark mode
-   Removes default cross-fade so our clip-path animation runs clean.
+   THEME TRANSITION CSS — injected once.
+   Same pure-CSS approach as GuestShell (proven to work).
+   380ms smooth transition on bg/text/border — no JS animation needed.
 ══════════════════════════════════════════════════════════════ */
-let vtInjected = false;
-function injectVtCss() {
-  if (vtInjected || typeof document === "undefined") return;
+let themeStyleInjected = false;
+function injectThemeCSS() {
+  if (themeStyleInjected || typeof document === "undefined") return;
   const s = document.createElement("style");
+  s.id = "sphere-theme-transition";
   s.textContent = `
-    ::view-transition-old(root),
-    ::view-transition-new(root) {
-      animation: none;
-      mix-blend-mode: normal;
+    *, *::before, *::after {
+      transition-property: background-color, color, border-color, box-shadow, fill, stroke !important;
+      transition-duration: 380ms !important;
+      transition-timing-function: ease !important;
+    }
+    button:active *, a:active * {
+      transition-duration: 80ms !important;
     }
   `;
   document.head.appendChild(s);
-  vtInjected = true;
+  themeStyleInjected = true;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -44,45 +49,30 @@ interface Notification {
 interface AppShellProps { children: React.ReactNode }
 
 /* ══════════════════════════════════════════════════════════════
-   SETTINGS RE-AUTH MODAL
-   Pure React state — NO sessionStorage.
-   Resets every page refresh, so user is asked every time.
+   PROFILE AVATAR — with onError fallback.
+   Prevents the gray broken-image box when avatar_url is set
+   but the image fails to load. Shows initial letter instead.
 ══════════════════════════════════════════════════════════════ */
-function SettingsAuthModal({ onSuccess, onClose }: { onSuccess: () => void; onClose: () => void }) {
-  const { user } = useAuth();
-  const [password, setPassword] = useState("");
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
-
-  const verify = async () => {
-    if (!password.trim() || !user?.email) return;
-    setLoading(true); setError("");
-    const { error: err } = await supabase.auth.signInWithPassword({ email: user.email, password });
-    setLoading(false);
-    if (err) { setError("Incorrect password. Try again."); return; }
-    onSuccess(); // no sessionStorage — next refresh asks again
-  };
-
+function ProfileAvatar({ src, name, size }: { src?: string | null; name: string; size: number }) {
+  const [imgErr, setImgErr] = useState(false);
+  const initial = (name || "U")[0].toUpperCase();
+  if (src && !imgErr) {
+    return (
+      <img
+        src={src}
+        alt={name}
+        onError={() => setImgErr(true)}
+        className="rounded-full object-cover shrink-0"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
-    <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center px-4">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm p-6">
-        <h2 className="font-bold text-gray-900 dark:text-white text-lg mb-1">Verify it's you</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Enter your password to access Settings</p>
-        <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && verify()} placeholder="Your password" autoFocus
-          className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2" />
-        {error && <p className="text-red-500 text-xs mb-3">{error}</p>}
-        <div className="flex gap-2 mt-2">
-          <button onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            Cancel
-          </button>
-          <button onClick={verify} disabled={loading || !password}
-            className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors">
-            {loading ? "Checking…" : "Confirm"}
-          </button>
-        </div>
-      </div>
+    <div
+      className="rounded-full bg-blue-600 flex items-center justify-center shrink-0 text-white font-bold"
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
+    >
+      {initial}
     </div>
   );
 }
@@ -95,20 +85,14 @@ export function AppShell({ children }: AppShellProps) {
   const { pathname } = useLocation();
   const { user, profile, signOut } = useAuth();
 
-  let isDark      = false;
-  let toggleTheme = () => {};
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const theme = useTheme();
-    isDark       = theme.isDark;
-    toggleTheme  = theme.toggleTheme;
-  } catch {}
+  /* ── useTheme called unconditionally at top level — this is the dark mode fix.
+     Previous code wrapped it in try/catch which violates React hooks rules and
+     prevents the theme state from being tracked properly. ── */
+  const { isDark, toggleTheme } = useTheme();
 
-  const [showNotif,        setShowNotif]        = useState(false);
-  const [notifications,    setNotifications]    = useState<Notification[]>([]);
-  const [unread,           setUnread]           = useState(0);
-  const [settingsAuthed,   setSettingsAuthed]   = useState(false); // resets every page load
-  const [showSettingsAuth, setShowSettingsAuth] = useState(false);
+  const [showNotif,     setShowNotif]     = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unread,        setUnread]        = useState(0);
 
   const mainRef     = useRef<HTMLDivElement>(null);
   const lastScrollY = useRef(0);
@@ -118,7 +102,7 @@ export function AppShell({ children }: AppShellProps) {
      LAYOUT RULES
   ──────────────────────────────────────────────────────── */
 
-  // Mobile: hide both header + bottom nav
+  /* Full-screen on mobile: no header, no bottom nav */
   const isFullScreen =
     pathname.startsWith("/create-post")  ||
     pathname.startsWith("/messages")     ||
@@ -128,7 +112,7 @@ export function AppShell({ children }: AppShellProps) {
     pathname === "/categories"           ||
     pathname.startsWith("/profile/edit");
 
-  // Mobile: header shows, bottom nav hides
+  /* Mobile: header shows, bottom nav hides */
   const hideNavOnly =
     pathname === "/profile"                   ||
     pathname === "/notifications"             ||
@@ -138,12 +122,13 @@ export function AppShell({ children }: AppShellProps) {
 
   const showBottomNav = !isFullScreen && !hideNavOnly;
 
-  // Header never scroll-hides on these pages
+  /* Header never scroll-hides on profile + notifications */
   const headerAlwaysVisible =
-    pathname === "/profile"        ||
+    pathname === "/profile" ||
     pathname === "/notifications";
 
-  // Promo panel: desktop only on /feed and /feed/search
+  /* Promo panel: desktop only, /feed + /feed/search ONLY.
+     All other pages (including /notifications) get full width. */
   const showPromoPanel =
     pathname === "/feed" ||
     pathname === "/feed/search";
@@ -152,9 +137,9 @@ export function AppShell({ children }: AppShellProps) {
      EFFECTS
   ──────────────────────────────────────────────────────── */
 
-  useEffect(() => { injectVtCss(); }, []);
+  useEffect(() => { injectThemeCSS(); }, []);
 
-  // Scroll detection — drives the mobile header max-height collapse
+  /* Scroll detection for mobile header collapse */
   useEffect(() => {
     const el = mainRef.current;
     if (!el || isFullScreen) return;
@@ -170,13 +155,13 @@ export function AppShell({ children }: AppShellProps) {
     return () => el.removeEventListener("scroll", handler);
   }, [pathname, isFullScreen, headerAlwaysVisible]);
 
-  // Reset header visible on route change
+  /* Reset header to visible on every route change */
   useEffect(() => {
     setHeaderVisible(true);
     lastScrollY.current = 0;
   }, [pathname]);
 
-  // Fetch notifications
+  /* Fetch notifications */
   useEffect(() => {
     if (!user?.id) return;
     supabase
@@ -194,7 +179,7 @@ export function AppShell({ children }: AppShellProps) {
       });
   }, [user?.id]);
 
-  // Mark read when panel opens
+  /* Mark read when dropdown opens */
   useEffect(() => {
     if (!showNotif || !user?.id || unread === 0) return;
     supabase.from("notifications").update({ is_read: true })
@@ -202,7 +187,7 @@ export function AppShell({ children }: AppShellProps) {
       .then(() => setUnread(0));
   }, [showNotif]);
 
-  // Realtime new notifications
+  /* Realtime new notifications */
   useEffect(() => {
     if (!user?.id) return;
     const ch = supabase
@@ -227,40 +212,16 @@ export function AppShell({ children }: AppShellProps) {
     else navigate("/feed");
   };
 
-  // Logout: window.location.replace prevents back-button returning to login state
+  /* Logout: hard replace — back button cannot return to logged-in state */
   const handleLogout = async () => {
     await signOut();
     sessionStorage.clear();
     window.location.replace("/");
   };
 
-  // Settings: ask every time (settingsAuthed = React state, not persisted)
-  const handleSettingsClick = () => {
-    if (settingsAuthed) { navigate("/settings"); return; }
-    setShowSettingsAuth(true);
-  };
-
-  // Dark mode: circular reveal via View Transitions API, fallback to instant toggle
-  const handleToggleTheme = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const x  = e.clientX;
-    const y  = e.clientY;
-    const vt = (document as any).startViewTransition;
-    if (!vt) { toggleTheme(); return; }
-    const r = Math.hypot(
-      Math.max(x, window.innerWidth  - x),
-      Math.max(y, window.innerHeight - y),
-    );
-    vt(() => { toggleTheme(); }).ready
-      .then(() => {
-        document.documentElement.animate(
-          { clipPath: isDark
-              ? [`circle(${r}px at ${x}px ${y}px)`, `circle(0px at ${x}px ${y}px)`]
-              : [`circle(0px at ${x}px ${y}px)`,     `circle(${r}px at ${x}px ${y}px)`] },
-          { duration: 500, easing: "ease-in-out",
-            pseudoElement: "::view-transition-new(root)" },
-        );
-      }).catch(() => {});
-  };
+  /* Settings: navigate directly — verification removed from here,
+     it lives on the Settings page itself as requested. */
+  const handleSettingsClick = () => navigate("/settings");
 
   const formatNotif = (n: Notification): string => {
     const who = n.actor?.name || "Someone";
@@ -287,16 +248,14 @@ export function AppShell({ children }: AppShellProps) {
       ? pathname === "/feed"
       : pathname === path || pathname.startsWith(path + "/");
 
-  /* ────────────────────────────────────────────────────────
-     SIDEBAR NAV — Status removed, Notifications added
-  ──────────────────────────────────────────────────────── */
+  /* Sidebar nav items */
   const navItems = [
-    { path: "/feed",          Icon: Home,         label: "Home",          action: handleHome },
-    { path: "/feed/search",   Icon: Search,       label: "Search",        action: undefined  },
-    { path: "/create-post",   Icon: PenLine,      label: "Create Quote",  action: undefined  },
-    { path: "/messages",      Icon: MessageSquare,label: "Messages",      action: undefined  },
-    { path: "/profile",       Icon: User,         label: "Profile",       action: undefined  },
-    { path: "/notifications", Icon: Bell,         label: "Notifications", action: undefined  },
+    { path: "/feed",          Icon: Home,          label: "Home",          action: handleHome },
+    { path: "/feed/search",   Icon: Search,        label: "Search",        action: undefined  },
+    { path: "/create-post",   Icon: PenLine,       label: "Create Quote",  action: undefined  },
+    { path: "/messages",      Icon: MessageSquare, label: "Messages",      action: undefined  },
+    { path: "/profile",       Icon: User,          label: "Profile",       action: undefined  },
+    { path: "/notifications", Icon: Bell,          label: "Notifications", action: undefined  },
   ] as const;
 
   /* ══════════════════════════════════════════════════════
@@ -305,7 +264,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="h-[100dvh] flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950">
 
-      {/* ══ DESKTOP HEADER — always visible on lg+ ══ */}
+      {/* ═══ DESKTOP HEADER ═══ */}
       <header className="hidden lg:flex items-center shrink-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-6 py-3 z-30 shadow-sm">
         <div className="flex-1">
           <button onClick={handleHome} className="group">
@@ -334,11 +293,11 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </header>
 
-      {/* ══ MOBILE HEADER — in flex flow, max-height collapse for scroll hide/show.
-          NOT fixed — no paddingTop issues, no white box gap between header and content.
-          Collapses via max-height transition (350ms) when scrolling down.
-          Profile page and notifications page: never hides (headerAlwaysVisible).
-      ══ */}
+      {/* ═══ MOBILE HEADER ═══
+          In normal flex flow (NOT fixed position).
+          Uses max-height collapse — no paddingTop, no white-gap bug.
+          headerAlwaysVisible = true on /profile + /notifications.
+      ═══ */}
       <div
         className="lg:hidden overflow-hidden shrink-0 bg-white dark:bg-gray-900"
         style={{
@@ -353,9 +312,11 @@ export function AppShell({ children }: AppShellProps) {
             sphere
           </button>
           <div className="flex items-center gap-1.5">
-            <button onClick={handleToggleTheme}
+            <button onClick={toggleTheme}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors shrink-0">
-              {isDark ? <Sun size={15} className="text-yellow-500" /> : <Moon size={15} className="text-gray-500" />}
+              {isDark
+                ? <Sun  size={15} className="text-yellow-500" />
+                : <Moon size={15} className="text-gray-500" />}
             </button>
             <button onClick={() => setShowNotif(v => !v)}
               className="relative w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors shrink-0">
@@ -370,10 +331,10 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </div>
 
-      {/* ══ BODY ══ */}
+      {/* ═══ BODY ═══ */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* ══ DESKTOP LEFT SIDEBAR ══ */}
+        {/* ═══ DESKTOP LEFT SIDEBAR ═══ */}
         <aside className="hidden lg:flex flex-col w-60 shrink-0 bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 overflow-hidden">
 
           {/* Upper nav */}
@@ -396,28 +357,24 @@ export function AppShell({ children }: AppShellProps) {
               </button>
             ))}
 
-            {/* ── Profile card — styled like a nav item, not a separate card ── */}
+            {/* ── Profile card — 36px avatar with onError fallback ── */}
             {profile && (
               <>
-                <div className="h-px bg-gray-100 dark:bg-gray-800 my-1" />
-                <button onClick={() => navigate("/profile")}
-                  className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    isActive("/profile")
-                      ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400"
-                      : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
-                  }`}>
-                  {/* Avatar — same size as icons (19px area) */}
-                  {profile.avatar_url ? (
-                    <img src={profile.avatar_url} alt={profile.name}
-                      className="w-[19px] h-[19px] rounded-full object-cover shrink-0" />
-                  ) : (
-                    <div className="w-[19px] h-[19px] rounded-full bg-blue-600 flex items-center justify-center shrink-0">
-                      <span className="text-white text-[8px] font-bold leading-none">{profile.name?.[0]?.toUpperCase() || "U"}</span>
+                <div className="h-px bg-gray-100 dark:bg-gray-800 my-2" />
+                <button
+                  onClick={() => navigate("/profile")}
+                  className="w-full px-3 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all group"
+                >
+                  <div className="flex items-center gap-3">
+                    <ProfileAvatar src={profile.avatar_url} name={profile.name} size={36} />
+                    <div className="flex-1 min-w-0 text-left">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white truncate leading-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                        {profile.name}
+                      </p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 truncate leading-tight mt-0.5">
+                        @{profile.username}
+                      </p>
                     </div>
-                  )}
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className="text-sm font-medium truncate leading-tight">{profile.name}</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate leading-tight">@{profile.username}</p>
                   </div>
                 </button>
               </>
@@ -429,9 +386,11 @@ export function AppShell({ children }: AppShellProps) {
 
           {/* Lower utilities */}
           <div className="shrink-0 px-3 py-3 space-y-0.5">
-            <button onClick={handleToggleTheme}
+            <button onClick={toggleTheme}
               className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-all">
-              {isDark ? <Sun size={19} className="text-yellow-500 shrink-0" /> : <Moon size={19} className="text-gray-400 shrink-0" />}
+              {isDark
+                ? <Sun  size={19} className="text-yellow-500 shrink-0" />
+                : <Moon size={19} className="text-gray-400 shrink-0" />}
               {isDark ? "Light Mode" : "Dark Mode"}
             </button>
             <button className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-all">
@@ -444,7 +403,8 @@ export function AppShell({ children }: AppShellProps) {
                   ? "bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400"
                   : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
               }`}>
-              <Settings size={19} className={`shrink-0 ${pathname.startsWith("/settings") ? "text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`} />
+              <Settings size={19}
+                className={`shrink-0 ${pathname.startsWith("/settings") ? "text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500"}`} />
               Settings
             </button>
             <button onClick={handleLogout}
@@ -455,7 +415,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </aside>
 
-        {/* ══ MAIN CONTENT ══ */}
+        {/* ═══ MAIN CONTENT ═══ */}
         <main
           ref={mainRef}
           className={`flex-1 min-w-0 overflow-y-auto bg-gray-50 dark:bg-gray-950 ${showBottomNav ? "pb-16 lg:pb-0" : "pb-0"}`}
@@ -463,7 +423,7 @@ export function AppShell({ children }: AppShellProps) {
           {children}
         </main>
 
-        {/* ══ PROMO PANEL — desktop, /feed + /feed/search only ══ */}
+        {/* ═══ PROMO PANEL — desktop, /feed + /feed/search ONLY ═══ */}
         {showPromoPanel && (
           <aside className="hidden lg:flex flex-col w-64 shrink-0 overflow-y-auto border-l border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-3 py-4">
             <LoginPromotionPanel />
@@ -471,7 +431,7 @@ export function AppShell({ children }: AppShellProps) {
         )}
       </div>
 
-      {/* ══ MOBILE BOTTOM NAV ══ */}
+      {/* ═══ MOBILE BOTTOM NAV ═══ */}
       {!isFullScreen && showBottomNav && (
         <div
           className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex items-center justify-around px-2 pt-1"
@@ -488,20 +448,16 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       )}
 
-      {/* ══ NOTIFICATION DROPDOWN PANEL ══ */}
+      {/* ═══ NOTIFICATION DROPDOWN ═══ */}
       {showNotif && (
         <>
           <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setShowNotif(false)} />
           <div className="fixed top-14 right-4 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl w-80 max-h-[70vh] flex flex-col overflow-hidden">
-
-            {/* Panel header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
               <h3 className="text-sm font-bold text-gray-900 dark:text-white">Notifications</h3>
               <button onClick={() => setShowNotif(false)}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">×</button>
             </div>
-
-            {/* Notification list */}
             <div className="flex-1 overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-gray-400">
@@ -532,8 +488,6 @@ export function AppShell({ children }: AppShellProps) {
                 ))
               )}
             </div>
-
-            {/* View All — navigates to /notifications page */}
             <div className="shrink-0 border-t border-gray-100 dark:border-gray-800">
               <button
                 onClick={() => { setShowNotif(false); navigate("/notifications"); }}
@@ -544,14 +498,6 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </div>
         </>
-      )}
-
-      {/* ══ SETTINGS RE-AUTH MODAL ══ */}
-      {showSettingsAuth && (
-        <SettingsAuthModal
-          onSuccess={() => { setSettingsAuthed(true); setShowSettingsAuth(false); navigate("/settings"); }}
-          onClose={() => setShowSettingsAuth(false)}
-        />
       )}
     </div>
   );
