@@ -1,13 +1,13 @@
 import React, {
   useState, useRef, useMemo, useEffect, useCallback,
 } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useLocation } from "react-router";
 import {
   MessageCircle, MoreVertical, Bookmark,
   Link2, Share2, X, Shield, UserPlus, Check,
   ChevronLeft, ChevronRight, Play, Volume2, VolumeX,
   Maximize2, Pause, Pin, Trash2, Flag, Ban,
-  RefreshCw, ThumbsUp,
+  RefreshCw, ThumbsUp, Minimize2,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -20,44 +20,34 @@ import {
 } from "../services/feedService";
 
 /* ══════════════════════════════════════════════════════════════
-   PostCard — single source of truth for all quote cards
-   
-   Data contract (from feedService LivePost):
-     post.id            — uuid
-     post.content       — text (mapped from body)
-     post.timestamp     — pre-formatted string e.g. "2h ago"
-     post.likes         — number (mapped from likes_count)
-     post.reposts       — number (mapped from forwards_count)
-     post.thoughts      — number (mapped from thoughts_count)
-     post.isLiked       — boolean
-     post.isReposted    — boolean
-     post.is_anon       — boolean
-     post.user.id       — uuid
-     post.user.name     — string
-     post.user.username — string with @ prefix
-     post.user.avatar   — url string
-     post.user.isVerified — boolean
-     post.user.is_org   — boolean
-     post.mediaItems    — [{type,url,width?,height?}]
-     post.comments_off  — boolean
-     post.is_pinned     — boolean
-     post.is_forward    — boolean
-     post.originalPost  — LivePost | null (for requotes)
-   
-   Props:
-     isLoggedIn — guest shows restricted menu + redirects to /login
-     isOwn      — shows own-post menu (delete/pin) vs other-post menu
-     onDelete   — called after delete/block so parent removes from list
+   TERMINOLOGY MAP  (DB → frontend)
+   posts.body            → post.content
+   posts.likes_count     → post.likes      / state praiseCount
+   posts.forwards_count  → post.reposts    / state fwdCount
+   posts.thoughts_count  → post.thoughts
+   posts.is_anon         → post.is_anon
+   posts.is_pinned       → post.is_pinned
+   posts.is_forward      → post.is_forward   (this IS a requote)
+   posts.forward_comment → post.forward_comment
+   posts.comments_off    → post.comments_off
+   post_praises          → "Praise"   (ThumbsUp)
+   post_forwards         → "Forward"  (RefreshCw)
+   bookmarks             → "Bookmark" (Bookmark icon)
+   thoughts              → "Thoughts" (MessageCircle)
+   profiles.is_verified  → post.user.isVerified
+   profiles.is_org       → post.user.is_org
+   post_media rows       → post.mediaItems
 ══════════════════════════════════════════════════════════════ */
 
 export interface PostCardProps {
-  post:        any;
-  isLoggedIn?: boolean;
-  isOwn?:      boolean;
-  onDelete?:   (id: string) => void;
+  post:           any;
+  isLoggedIn?:    boolean;
+  isOwn?:         boolean;
+  isFollowing?:   boolean;
+  currentUserId?: string;
+  onDelete?:      (id: string) => void;
 }
 
-/* ── Types ── */
 interface MediaItem {
   type:    "image" | "video";
   url:     string;
@@ -66,406 +56,534 @@ interface MediaItem {
   height?: number;
 }
 
-interface MenuPosition {
-  left: number;
-  top:  number;
-}
+/* ══════════════════════════════════════
+   LOCAL STORAGE — media preferences
+══════════════════════════════════════ */
+const LS_MUTED  = "sphere_vid_muted";
+const LS_VOLUME = "sphere_vid_volume";
 
-/* ── Video mute preference in localStorage ── */
-const getStoredMute = (): boolean =>
-  localStorage.getItem("sphere_muted") !== "false";
-const setStoredMute = (v: boolean) =>
-  localStorage.setItem("sphere_muted", String(v));
+const lsGet = (k: string, fb: string) => { try { return localStorage.getItem(k) ?? fb; } catch { return fb; } };
+const lsSet = (k: string, v: string)  => { try { localStorage.setItem(k, v); } catch {} };
 
-/* ── Number formatter ── */
+const getMuted  = ()           => lsGet(LS_MUTED,  "true") === "true";
+const saveMuted = (v: boolean) => lsSet(LS_MUTED,  String(v));
+const getVolume = ()           => parseFloat(lsGet(LS_VOLUME, "1"));
+const saveVolume = (v: number) => lsSet(LS_VOLUME, String(v));
+
+/* ══════════════════════════════════════
+   FORMATTERS
+══════════════════════════════════════ */
 const N = (n: number): string =>
   n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + "M"
   : n >= 1_000   ? (n / 1_000).toFixed(1)     + "K"
   : String(n ?? 0);
 
-/* ── Video time formatter ── */
-const T = (s: number): string =>
+const Tfmt = (s: number): string =>
   `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
 
-/* ════════════════════════════════════════════════════════════
-   Sub-components
-════════════════════════════════════════════════════════════ */
-
-/* Avatar with initials fallback */
+/* ══════════════════════════════════════
+   AVATAR
+══════════════════════════════════════ */
 function Avatar({
   src, name, size = 40, onClick,
 }: {
-  src?: string | null;
-  name: string;
-  size?: number;
+  src?: string | null; name: string; size?: number;
   onClick?: (e: React.MouseEvent) => void;
 }) {
-  const [imgErr, setImgErr] = useState(false);
-  const initials = (name || "U")
-    .split(" ")
-    .map(w => w[0] ?? "")
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-
-  const style: React.CSSProperties = { width: size, height: size };
+  const [err, setErr] = useState(false);
+  const initials = (name || "U").split(" ").map(w => w[0] ?? "").join("").slice(0, 2).toUpperCase();
   const cls = "shrink-0 rounded-full overflow-hidden";
-
-  if (src && !imgErr) {
-    return onClick ? (
-      <button onClick={onClick} className={cls} style={style}>
-        <img src={src} alt={name} className="w-full h-full object-cover"
-          onError={() => setImgErr(true)} />
-      </button>
-    ) : (
-      <div className={cls} style={style}>
-        <img src={src} alt={name} className="w-full h-full object-cover"
-          onError={() => setImgErr(true)} />
-      </div>
-    );
-  }
-
-  const inner = (
-    <div
-      className="w-full h-full bg-blue-600 flex items-center justify-center text-white font-bold select-none"
-      style={{ fontSize: size * 0.36 }}
-    >{initials}</div>
-  );
-
-  return onClick ? (
-    <button onClick={onClick} className={cls} style={style}>{inner}</button>
+  const style: React.CSSProperties = { width: size, height: size };
+  const inner = src && !err ? (
+    <img src={src} alt={name} className="w-full h-full object-cover" onError={() => setErr(true)} />
   ) : (
-    <div className={cls} style={style}>{inner}</div>
+    <div className="w-full h-full bg-blue-600 flex items-center justify-center text-white font-bold select-none"
+      style={{ fontSize: size * 0.36 }}>{initials}</div>
   );
+  if (onClick) return <button onClick={onClick} className={cls} style={style}>{inner}</button>;
+  return <div className={cls} style={style}>{inner}</div>;
 }
 
-/* Video overlay button */
-function VCtrl({
-  onClick, children,
-}: {
-  onClick: (e: React.MouseEvent) => void;
-  children: React.ReactNode;
+/* ══════════════════════════════════════
+   MENU ROW
+══════════════════════════════════════ */
+function MRow({ icon, label, onClick, danger, muted }: {
+  icon: React.ReactNode; label: string; onClick: () => void;
+  danger?: boolean; muted?: boolean;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="w-9 h-9 rounded-full bg-black/55 flex items-center justify-center text-white hover:bg-blue-600 transition-colors active:scale-95"
-    >
-      {children}
-    </button>
-  );
-}
-
-/* Menu row */
-function MRow({
-  icon, label, onClick, danger, muted,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  muted?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={[
-        "flex items-center gap-2.5 w-full px-3.5 py-2.5 text-[13px] text-left transition-colors",
-        danger ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/60"
-        : muted ? "text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800"
-        :         "text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800",
-      ].join(" ")}
-    >
-      {icon}
+    <button onClick={onClick} className={[
+      "flex items-center gap-3 w-full px-4 py-3 text-[13.5px] font-medium text-left transition-colors active:scale-[0.98]",
+      danger ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50"
+      : muted ? "text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+      :         "text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/60",
+    ].join(" ")}>
+      <span className="shrink-0">{icon}</span>
       <span>{label}</span>
     </button>
   );
 }
+const MDivider = () => <div className="h-px bg-gray-100 dark:bg-gray-700/60 mx-3 my-0.5" />;
 
-/* ════════════════════════════════════════════════════════════
-   Main PostCard component
-════════════════════════════════════════════════════════════ */
-export function PostCard({
-  post, isLoggedIn = false, isOwn = false, onDelete,
-}: PostCardProps) {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const uid = user?.id;
+/* ══════════════════════════════════════════════════════════════
+   FULLSCREEN VIEWER
+   • all media swipeable (left/right swipe or arrow keys)
+   • swipe DOWN to close
+   • Escape key to close
+   • media never overflows screen bounds
+══════════════════════════════════════════════════════════════ */
+function FullscreenViewer({ media, startIdx, onClose }: {
+  media: MediaItem[]; startIdx: number; onClose: () => void;
+}) {
+  const [idx,      setIdx]      = useState(startIdx);
+  const [muted,    setMutedSt]  = useState(getMuted());
+  const [volume,   setVolumeSt] = useState(getVolume());
+  const [playing,  setPlaying]  = useState(false);
+  const [current,  setCurrent]  = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [showVol,  setShowVol]  = useState(false);
+  const [flash,    setFlash]    = useState<string | null>(null);
+  const videoRef    = useRef<HTMLVideoElement>(null);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const item = media[idx];
 
-  /* ── Canonical URL ── */
-  const quoteUrl = `/quote/${post.id}`;
-
-  /* ── Pop-out (delete / block) ── */
-  const [popping, setPopping] = useState(false);
-  const [removed, setRemoved] = useState(false);
-
-  const startPopOut = useCallback((afterCb?: () => void) => {
-    setPopping(true);
-    setTimeout(() => {
-      setRemoved(true);
-      afterCb?.();
-    }, 360);
+  /* Lock body scroll */
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
   }, []);
 
-  /* ── Interaction state — initialised from post prop ── */
-  const [liked,       setLiked]       = useState<boolean>(post.isLiked   ?? false);
+  /* Keyboard nav */
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape")      onClose();
+      if (e.key === "ArrowLeft"  && idx > 0)               setIdx(i => i - 1);
+      if (e.key === "ArrowRight" && idx < media.length - 1) setIdx(i => i + 1);
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [idx, media.length, onClose]);
+
+  /* Sync video state */
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = muted; v.volume = volume;
+  }, [muted, volume, idx]);
+
+  const doFlash = (k: string) => { setFlash(k); setTimeout(() => setFlash(null), 300); };
+
+  const toggleMute = () => {
+    const next = !muted; setMutedSt(next); saveMuted(next); doFlash("mute");
+    const v = videoRef.current; if (v) v.muted = next;
+  };
+  const changeVol = (val: number) => {
+    setVolumeSt(val); saveVolume(val);
+    const v = videoRef.current;
+    if (v) { v.volume = val; if (val === 0) { setMutedSt(true); saveMuted(true); } else { setMutedSt(false); saveMuted(false); } }
+  };
+  const togglePlay = () => {
+    const v = videoRef.current; if (!v) return;
+    playing ? v.pause() : v.play(); doFlash("play");
+  };
+  const seek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = videoRef.current; if (!v) return;
+    const t = Number(e.target.value); v.currentTime = t; setCurrent(t);
+  };
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const dx = touchStartX.current - e.changedTouches[0].clientX;
+    const dy = touchStartY.current - e.changedTouches[0].clientY;
+    if (dy < -60 && Math.abs(dy) > Math.abs(dx)) { onClose(); return; }
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx > 0 && idx < media.length - 1) setIdx(i => i + 1);
+      if (dx < 0 && idx > 0)               setIdx(i => i - 1);
+    }
+  };
+
+  const btnCls = (k: string) =>
+    `w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90 ${
+      flash === k ? "bg-blue-600 text-white" : "bg-black/55 text-white hover:bg-blue-600"
+    }`;
+
+  return (
+    <div
+      className="fixed inset-0 z-[99999] bg-black flex flex-col select-none"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Top bar */}
+      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 pt-safe-top py-3 bg-gradient-to-b from-black/70 to-transparent">
+        <button onClick={onClose} className={btnCls("close")}><X size={18} /></button>
+        {media.length > 1 && (
+          <span className="text-white text-xs font-semibold bg-black/40 px-3 py-1 rounded-full">
+            {idx + 1} / {media.length}
+          </span>
+        )}
+        <button onClick={onClose} className={btnCls("min")}><Minimize2 size={16} /></button>
+      </div>
+
+      {/* Media — constrained to screen */}
+      <div className="flex-1 flex items-center justify-center min-h-0 px-2"
+        style={{ paddingTop: 56, paddingBottom: item.type === "video" ? 120 : 56 }}>
+        {item.type === "image" ? (
+          <img
+            src={item.url} alt="" draggable={false}
+            onContextMenu={e => e.preventDefault()}
+            className="max-w-full max-h-full object-contain rounded-xl"
+            style={{ maxHeight: "calc(100dvh - 120px)", maxWidth: "100vw" }}
+          />
+        ) : (
+          <video
+            ref={videoRef} src={item.url} poster={item.poster}
+            muted={muted} loop playsInline
+            className="max-w-full max-h-full object-contain rounded-xl"
+            style={{ maxHeight: "calc(100dvh - 160px)", maxWidth: "100vw" }}
+            onPlay={()  => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onLoadedMetadata={e => setDuration(e.currentTarget.duration || 0)}
+            onTimeUpdate={e  => setCurrent(e.currentTarget.currentTime)}
+          />
+        )}
+      </div>
+
+      {/* Left / Right arrows */}
+      {idx > 0 && (
+        <button onClick={() => setIdx(i => i - 1)}
+          className={`${btnCls("prev")} absolute left-3 top-1/2 -translate-y-1/2`}>
+          <ChevronLeft size={22} />
+        </button>
+      )}
+      {idx < media.length - 1 && (
+        <button onClick={() => setIdx(i => i + 1)}
+          className={`${btnCls("next")} absolute right-3 top-1/2 -translate-y-1/2`}>
+          <ChevronRight size={22} />
+        </button>
+      )}
+
+      {/* Dot indicators */}
+      {media.length > 1 && (
+        <div className="absolute left-1/2 -translate-x-1/2 flex gap-2"
+          style={{ bottom: item.type === "video" ? 130 : 24 }}>
+          {media.map((_, i) => (
+            <button key={i} onClick={() => setIdx(i)}
+              className={`rounded-full transition-all ${i === idx ? "bg-white w-5 h-1.5" : "bg-white/40 w-1.5 h-1.5"}`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Video controls */}
+      {item.type === "video" && (
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-8 pt-12">
+          {/* Seek bar */}
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-white text-[11px] font-mono shrink-0 w-10 text-right">{Tfmt(current)}</span>
+            <input type="range" min={0} max={duration || 100} value={current} onChange={seek}
+              className="flex-1 h-1.5 rounded-full cursor-pointer appearance-none"
+              style={{ background: `linear-gradient(to right,#3b82f6 ${(current/(duration||1))*100}%,rgba(255,255,255,.2) 0%)` }}
+            />
+            <span className="text-white text-[11px] font-mono shrink-0 w-10">{Tfmt(duration)}</span>
+          </div>
+          {/* Controls */}
+          <div className="flex items-center justify-between">
+            <button onClick={togglePlay} className={btnCls("play")}>
+              {playing ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" className="ml-0.5" />}
+            </button>
+            <div className="flex items-center gap-2">
+              {showVol && (
+                <div className="flex items-center gap-2 bg-black/60 rounded-full px-3 py-2">
+                  <input type="range" min={0} max={1} step={0.05} value={volume}
+                    onChange={e => changeVol(parseFloat(e.target.value))}
+                    className="w-24 h-1.5 rounded-full cursor-pointer appearance-none"
+                    style={{ background: `linear-gradient(to right,#3b82f6 ${volume*100}%,rgba(255,255,255,.2) 0%)` }}
+                  />
+                  <span className="text-white text-[10px] w-7 tabular-nums">{Math.round(volume*100)}%</span>
+                </div>
+              )}
+              <button onClick={() => { toggleMute(); setShowVol(v => !v); }} className={btnCls("mute")}>
+                {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Swipe-down hint */}
+      {item.type === "image" && (
+        <p className="absolute bottom-3 left-1/2 -translate-x-1/2 text-white/25 text-[10px] pointer-events-none">
+          Swipe down to close
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MAIN PostCard
+══════════════════════════════════════════════════════════════ */
+export function PostCard({
+  post,
+  isLoggedIn   = false,
+  isOwn        = false,
+  isFollowing  = false,
+  currentUserId,
+  onDelete,
+}: PostCardProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+  const uid      = currentUserId ?? user?.id;
+  const quoteUrl = `/quote/${post.id}`;
+
+  /* ── Pop-out animation ── */
+  const [popping, setPopping] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const startPopOut = useCallback((cb?: () => void) => {
+    setPopping(true);
+    setTimeout(() => { setRemoved(true); cb?.(); }, 360);
+  }, []);
+
+  /* ── Toast ── */
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setToast(msg); setTimeout(() => setToast(null), 2000);
+  }, []);
+
+  /* ── Interaction state ──
+     post.isLiked    → DB post_praises row exists for uid
+     post.isReposted → DB post_forwards row exists for uid
+     post.likes      → DB likes_count
+     post.reposts    → DB forwards_count
+  ── */
+  const [praised,     setPraised]     = useState<boolean>(post.isLiked    ?? false);
   const [forwarded,   setForwarded]   = useState<boolean>(post.isReposted ?? false);
   const [bookmarked,  setBookmarked]  = useState<boolean>(false);
-  const [following,   setFollowing]   = useState<boolean>(false);
-  const [likeCount,   setLikeCount]   = useState<number>(post.likes   ?? 0);
+  const [following,   setFollowing]   = useState<boolean>(isFollowing);
+  const [praiseCount, setPraiseCount] = useState<number>(post.likes   ?? 0);
   const [fwdCount,    setFwdCount]    = useState<number>(post.reposts ?? 0);
   const [followAnim,  setFollowAnim]  = useState(false);
 
-  /* ── Load DB state once on mount ── */
+  useEffect(() => { setFollowing(isFollowing); }, [isFollowing]);
+
+  /* Load bookmark from DB (bookmarks table) */
   useEffect(() => {
     if (!uid || !post.id) return;
-    let cancelled = false;
+    let gone = false;
+    supabase.from("bookmarks").select("user_id")
+      .eq("user_id", uid).eq("post_id", post.id).maybeSingle()
+      .then(({ data }) => { if (!gone && data) setBookmarked(true); });
+    return () => { gone = true; };
+  }, [uid, post.id]);
 
-    /* Check bookmark */
-    supabase.from("bookmarks")
-      .select("user_id").eq("user_id", uid).eq("post_id", post.id)
-      .maybeSingle()
-      .then(({ data }) => { if (!cancelled && data) setBookmarked(true); });
+  /* ── Three-dot menu ── */
+  const [menuOpen,  setMenuOpen]  = useState(false);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+  const dotRef = useRef<HTMLButtonElement>(null);
 
-    /* Check follow */
-    if (!post.is_anon && post.user?.id) {
-      supabase.from("follows")
-        .select("follower_id")
-        .eq("follower_id", uid).eq("following_id", post.user.id)
-        .maybeSingle()
-        .then(({ data }) => { if (!cancelled && data) setFollowing(true); });
-    }
-
-    return () => { cancelled = true; };
-  }, [uid, post.id, post.user?.id, post.is_anon]);
-
-  /* ── Three-dot menu (fixed position) ── */
-  const [menuPos, setMenuPos] = useState<MenuPosition | null>(null);
-  const dotBtnRef = useRef<HTMLButtonElement>(null);
-
-  const openMenu = (e: React.MouseEvent) => {
+  const openMenu = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (menuPos) { setMenuPos(null); return; }
-    const r = dotBtnRef.current?.getBoundingClientRect();
+    if (menuOpen) { setMenuOpen(false); return; }
+    const r = dotRef.current?.getBoundingClientRect();
     if (!r) return;
-    const W = 196;
-    const H = isOwn ? 180 : 200;
-    const left = Math.max(8, Math.min(r.right - W, window.innerWidth  - W - 8));
-    const top  = r.bottom + 6 + H > window.innerHeight
-      ? r.top - H - 6
-      : r.bottom + 6;
-    setMenuPos({ left, top });
-  };
+    const W = 215;
+    const left = Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8));
+    /* Always open BELOW the button — keeping it simple and predictable */
+    const top  = Math.min(r.bottom + 6, window.innerHeight - 300);
+    setMenuStyle({ position: "fixed", left, top, width: W, zIndex: 9999 });
+    setMenuOpen(true);
+  }, [menuOpen]);
 
-  const closeMenu = useCallback(() => setMenuPos(null), []);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
 
-  /* ── Media ── */
-  const [mediaIdx,      setMediaIdx]      = useState(0);
-  const [videoPlaying,  setVideoPlaying]  = useState(false);
-  const [videoMuted,    setVideoMuted]    = useState(getStoredMute);
-  const [videoCurrent,  setVideoCurrent]  = useState(0);
-  const [videoDuration, setVideoDuration] = useState(0);
-  const [swipeSX,       setSwipeSX]       = useState(0);
-  const [lazyAR,        setLazyAR]        = useState<Record<number, number>>({});
+  /* ── Media state ── */
+  const [mediaIdx,     setMediaIdx]    = useState(0);
+  const [videoPlaying, setVideoPlay]   = useState(false);
+  const [videoMuted,   setVideoMuted]  = useState(getMuted);
+  const [videoVol,     setVideoVol]    = useState(getVolume);
+  const [vidCurrent,   setVidCurrent]  = useState(0);
+  const [vidDuration,  setVidDuration] = useState(0);
+  const [showVolBar,   setShowVolBar]  = useState(false);
+  const [lazyAR,       setLazyAR]      = useState<Record<number, number>>({});
+  const [activeBtn,    setActiveBtn]   = useState<string | null>(null);
+  const [fullscreen,   setFullscreen]  = useState(false);
+  const [swipeSX,      setSwipeSX]     = useState(0);
+  const [swipeSY,      setSwipeSY]     = useState(0);
+  const [lockedHeight, setLockedH]     = useState<number | null>(null);
+
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const outerRef  = useRef<HTMLDivElement>(null);
-  const [cardW, setCardW] = useState(0);
+  const [cardW,   setCardW] = useState(0);
 
-  /* Measure card width accurately */
   useEffect(() => {
-    const el = outerRef.current;
-    if (!el) return;
+    const el = outerRef.current; if (!el) return;
     const ro = new ResizeObserver(es => setCardW(es[0]?.contentRect.width ?? 0));
-    ro.observe(el);
-    return () => ro.disconnect();
+    ro.observe(el); return () => ro.disconnect();
   }, []);
 
-  /* Stop non-active videos */
   useEffect(() => {
-    videoRefs.current.forEach((v, i) => {
-      if (v && i !== mediaIdx) { v.pause(); }
-    });
-    setVideoPlaying(false);
-    setVideoCurrent(0);
-    setVideoDuration(0);
+    videoRefs.current.forEach((v, i) => { if (v && i !== mediaIdx) v.pause(); });
+    setVideoPlay(false); setVidCurrent(0); setVidDuration(0);
   }, [mediaIdx]);
 
-  /* Apply mute preference to current video */
   useEffect(() => {
-    const v = videoRefs.current[mediaIdx];
-    if (v) v.muted = videoMuted;
-  }, [videoMuted, mediaIdx]);
+    const v = videoRefs.current[mediaIdx]; if (!v) return;
+    v.muted = videoMuted; v.volume = videoVol;
+  }, [videoMuted, videoVol, mediaIdx]);
 
-  /* Unified media list */
   const allMedia: MediaItem[] = useMemo(() => {
     if (post.mediaItems?.length > 0) return post.mediaItems as MediaItem[];
     const items: MediaItem[] = [];
-    if (post.images?.length > 0) {
-      post.images.forEach((u: string) => items.push({ type: "image", url: u }));
-    } else if (post.image) {
-      items.push({ type: "image", url: post.image });
-    }
-    if (post.video) {
-      items.push({ type: "video", url: post.video, poster: post.videoPoster });
-    }
+    if (post.images?.length > 0) post.images.forEach((u: string) => items.push({ type: "image", url: u }));
+    else if (post.image) items.push({ type: "image", url: post.image });
+    if (post.video) items.push({ type: "video", url: post.video, poster: post.videoPoster });
     return items;
   }, [post]);
 
-  /* Container height — uses DB width/height if available */
-  const mediaHeight = useMemo((): number => {
-    const w    = cardW || 360;
-    const item = allMedia[mediaIdx];
-    if (!item) return 0;
-
+  /* Media height — locked after first computation using FIRST media item,
+     so it never shifts when user swipes between media */
+  const computedH = useMemo(() => {
+    const w = cardW || 360;
+    const item = allMedia[0]; if (!item) return 0;
     let ar: number | null = null;
-    if (item.width && item.height && item.width > 0 && item.height > 0) {
-      ar = item.width / item.height;
-    } else if (lazyAR[mediaIdx]) {
-      ar = lazyAR[mediaIdx];
-    }
-
+    if (item.width && item.height && item.width > 0 && item.height > 0) ar = item.width / item.height;
+    else if (lazyAR[0]) ar = lazyAR[0];
     if (ar !== null) {
       const h = w / ar;
-      if (ar < 0.75) return Math.min(h, 500); // portrait
-      if (ar > 1.8)  return Math.min(h, 280); // wide landscape
-      if (ar > 1.2)  return Math.min(h, 340); // landscape
-      return           Math.min(h, 420);       // near-square
+      if (ar < 0.75) return Math.min(h, 500);
+      if (ar > 1.8)  return Math.min(h, 280);
+      if (ar > 1.2)  return Math.min(h, 340);
+      return           Math.min(h, 420);
     }
     return item.type === "video" ? 280 : 320;
-  }, [cardW, allMedia, mediaIdx, lazyAR]);
+  }, [cardW, allMedia, lazyAR]);
+
+  useEffect(() => { if (lockedHeight === null && computedH > 0) setLockedH(computedH); }, [computedH, lockedHeight]);
+  const mediaHeight = lockedHeight ?? computedH;
 
   const onImgLoad = (e: React.SyntheticEvent<HTMLImageElement>, i: number) => {
     const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
     if (w && h && !allMedia[i]?.width) setLazyAR(p => ({ ...p, [i]: w / h }));
   };
-
   const onVideoMeta = (e: React.SyntheticEvent<HTMLVideoElement>, i: number) => {
     const { videoWidth: w, videoHeight: h } = e.currentTarget;
     if (w && h && !allMedia[i]?.width) setLazyAR(p => ({ ...p, [i]: w / h }));
-    setVideoDuration(e.currentTarget.duration || 0);
+    if (i === mediaIdx) setVidDuration(e.currentTarget.duration || 0);
   };
 
-  /* Swipe handlers */
-  const onTS = (e: React.TouchEvent) => setSwipeSX(e.targetTouches[0].clientX);
+  /* Smooth real-time swipe on media */
+  const onTS = (e: React.TouchEvent) => { setSwipeSX(e.targetTouches[0].clientX); setSwipeSY(e.targetTouches[0].clientY); };
   const onTE = (e: React.TouchEvent) => {
-    const d = swipeSX - e.changedTouches[0].clientX;
-    if (Math.abs(d) < 40) return;
-    if (d > 0 && mediaIdx < allMedia.length - 1) setMediaIdx(p => p + 1);
-    else if (d < 0 && mediaIdx > 0)              setMediaIdx(p => p - 1);
+    const dx = swipeSX - e.changedTouches[0].clientX;
+    const dy = swipeSY - e.changedTouches[0].clientY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
+      if (dx > 0 && mediaIdx < allMedia.length - 1) setMediaIdx(p => p + 1);
+      else if (dx < 0 && mediaIdx > 0)              setMediaIdx(p => p - 1);
+    }
   };
 
-  /* Block context-menu on media (anti-download) */
-  const noCtx = (e: React.SyntheticEvent) => e.preventDefault();
+  const noCtx  = (e: React.SyntheticEvent) => e.preventDefault();
+  const flashB = (k: string) => { setActiveBtn(k); setTimeout(() => setActiveBtn(null), 280); };
 
-  /* Video controls */
   const vidTogglePlay = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const v = videoRefs.current[mediaIdx];
-    if (!v) return;
+    e.stopPropagation(); flashB("play");
+    const v = videoRefs.current[mediaIdx]; if (!v) return;
     videoPlaying ? v.pause() : v.play();
   };
   const vidToggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const next = !videoMuted;
-    setVideoMuted(next);
-    setStoredMute(next);
-    const v = videoRefs.current[mediaIdx];
-    if (v) v.muted = next;
+    e.stopPropagation(); flashB("mute");
+    const next = !videoMuted; setVideoMuted(next); saveMuted(next);
+    setShowVolBar(s => !s);
+    const v = videoRefs.current[mediaIdx]; if (v) v.muted = next;
   };
-  const vidFullscreen = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const vidChangeVol = (val: number) => {
+    setVideoVol(val); saveVolume(val);
     const v = videoRefs.current[mediaIdx];
-    if (!v) return;
-    if (v.requestFullscreen)                   v.requestFullscreen();
-    else if ((v as any).webkitEnterFullscreen) (v as any).webkitEnterFullscreen();
+    if (v) { v.volume = val; const m = val === 0; setVideoMuted(m); saveMuted(m); }
   };
   const vidSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.stopPropagation();
-    const v = videoRefs.current[mediaIdx];
-    if (!v) return;
-    const t = Number(e.target.value);
-    v.currentTime = t;
-    setVideoCurrent(t);
+    const v = videoRefs.current[mediaIdx]; if (!v) return;
+    const t = Number(e.target.value); v.currentTime = t; setVidCurrent(t);
+  };
+  const openFullscreen = (e: React.MouseEvent, i: number) => {
+    e.stopPropagation(); flashB("full"); setMediaIdx(i); setFullscreen(true);
   };
 
-  /* ── Guard: redirect guest to login ── */
+  const vBtnCls = (k: string) =>
+    `w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90 ${
+      activeBtn === k ? "bg-blue-600 text-white shadow-md shadow-blue-600/40" : "bg-black/55 text-white hover:bg-blue-600"
+    }`;
+
+  /* ── Auth guard ── */
   const guard = useCallback((fn: () => void) => {
     if (!isLoggedIn) { navigate("/login"); return; }
     fn();
   }, [isLoggedIn, navigate]);
 
-  /* ── Profile navigation ── */
-  const goProfile = (e: React.MouseEvent) => {
+  /* ── Navigation ── */
+  const goProfile = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isLoggedIn) { navigate("/login"); return; }
-    if (!post.is_anon && post.user?.id) navigate(`/user/${post.user.id}`);
-  };
+    if (!isLoggedIn)   { navigate("/login"); return; }
+    if (post.is_anon)  return;
+    if (isOwn)         { navigate("/profile"); return; }
+    if (post.user?.id) navigate(`/user/${post.user.id}`);
+  }, [isLoggedIn, isOwn, post.is_anon, post.user?.id, navigate]);
 
-  /* ── Mention click ── */
   const goMention = async (e: React.MouseEvent, raw: string) => {
     e.stopPropagation();
     if (!isLoggedIn) { navigate("/login"); return; }
-    const username = raw.replace(/^@/, "").toLowerCase();
-    const { data } = await supabase
-      .from("profiles").select("id").ilike("username", username).maybeSingle();
+    const u = raw.replace(/^@/, "").toLowerCase();
+    const { data } = await supabase.from("profiles").select("id").ilike("username", u).maybeSingle();
     if (data?.id) navigate(`/user/${data.id}`);
   };
 
-  /* ── Praise ── */
+  /* ── Actions ── */
   const doPraise = (e: React.MouseEvent) => {
     e.stopPropagation();
     guard(() => {
-      // Capture current value synchronously to avoid stale closure
-      const wasLiked = liked;
-      setLiked(!wasLiked);
-      setLikeCount(c => wasLiked ? Math.max(0, c - 1) : c + 1);
+      const was = praised;
+      setPraised(!was); setPraiseCount(c => was ? Math.max(0, c - 1) : c + 1);
       if (!uid) return;
-      togglePraise(post.id, uid, wasLiked).catch(() => {
-        // Rollback on error
-        setLiked(wasLiked);
-        setLikeCount(c => wasLiked ? c + 1 : Math.max(0, c - 1));
+      togglePraise(post.id, uid, was).catch(() => {
+        setPraised(was); setPraiseCount(c => was ? c + 1 : Math.max(0, c - 1));
       });
     });
   };
 
-  /* ── Forward ── */
   const doForward = (e: React.MouseEvent) => {
     e.stopPropagation();
     guard(() => {
-      const wasForwarded = forwarded;
-      setForwarded(!wasForwarded);
-      setFwdCount(c => wasForwarded ? Math.max(0, c - 1) : c + 1);
+      const was = forwarded;
+      setForwarded(!was); setFwdCount(c => was ? Math.max(0, c - 1) : c + 1);
       if (!uid) return;
-      toggleForward(post.id, uid, wasForwarded).catch(() => {
-        setForwarded(wasForwarded);
-        setFwdCount(c => wasForwarded ? c + 1 : Math.max(0, c - 1));
+      toggleForward(post.id, uid, was).catch(() => {
+        setForwarded(was); setFwdCount(c => was ? c + 1 : Math.max(0, c - 1));
       });
     });
   };
 
-  /* ── Bookmark ── */
   const doBookmark = (e: React.MouseEvent) => {
     e.stopPropagation();
     guard(() => {
-      const wasBookmarked = bookmarked;
-      setBookmarked(!wasBookmarked);
+      const was = bookmarked; setBookmarked(!was);
       if (!uid) return;
-      toggleBookmark(post.id, uid, wasBookmarked).catch(() => {
-        setBookmarked(wasBookmarked);
-      });
+      toggleBookmark(post.id, uid, was).catch(() => setBookmarked(was));
     });
   };
 
-  /* ── Follow ── */
-  const doFollow = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const doFollow = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (!isLoggedIn) { navigate("/login"); return; }
     if (!uid || !post.user?.id) return;
-    const wasFollowing = following;
-    setFollowing(!wasFollowing);
-    if (!wasFollowing) {
-      setFollowAnim(true);
-      setTimeout(() => setFollowAnim(false), 1800);
+    const was = following; setFollowing(!was);
+    if (!was) {
+      setFollowAnim(true); setTimeout(() => setFollowAnim(false), 1800);
       const { error } = await supabase.from("follows")
         .insert({ follower_id: uid, following_id: post.user.id });
       if (error) setFollowing(false);
@@ -475,85 +593,302 @@ export function PostCard({
     }
   };
 
-  /* ── Delete ── */
   const doDelete = () => {
     closeMenu();
     if (!uid) return;
-    // Optimistic pop-out immediately, fire DB in background
-    startPopOut(() => { if (onDelete) onDelete(post.id); else navigate(-1); });
+    startPopOut(() => {
+      onDelete?.(post.id);
+      if (location.pathname.startsWith("/quote/")) navigate(-1);
+    });
     deletePost(post.id, uid).catch(err => console.error("[PostCard] delete:", err));
   };
 
-  /* ── Block ── */
-  const doBlock = () => {
+  const doBlock = async () => {
     closeMenu();
     if (!uid || !post.user?.id) return;
-    startPopOut(() => { if (onDelete) onDelete(post.id); });
-    blockUser(uid, post.user.id).catch(err => console.error("[PostCard] block:", err));
+    /* Remove all this user's posts from the feed silently */
+    startPopOut(() => {
+      onDelete?.(post.id);
+      if (location.pathname.startsWith("/quote/")) navigate(-1);
+    });
+    try { await blockUser(uid, post.user.id); }
+    catch (err) { console.error("[PostCard] block:", err); }
   };
 
-  /* ── Requote ── */
-  const doRequote = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    closeMenu();
-    guard(() => navigate(`/create-post?requote=${post.id}`));
-  };
+  const doRequote = () => { closeMenu(); guard(() => navigate(`/create-post?requote=${post.id}`)); };
 
-  /* ── Pin ── */
   const doPin = async () => {
     closeMenu();
     if (!uid) return;
-    await supabase.from("posts")
-      .update({ is_pinned: !post.is_pinned })
+    await supabase.from("posts").update({ is_pinned: !post.is_pinned })
       .eq("id", post.id).eq("user_id", uid);
   };
 
-  /* ── Share / copy ── */
   const doShare = () => {
     closeMenu();
     const url = `${window.location.origin}/quote/${post.id}`;
-    navigator.share?.({ url }).catch(() => {});
-  };
-  const doCopy = () => {
-    closeMenu();
-    navigator.clipboard?.writeText(`${window.location.origin}/quote/${post.id}`).catch(() => {});
-  };
-  const doReport = () => {
-    closeMenu();
-    navigate(`/report/${post.id}`);
+    if (navigator.share) navigator.share({ url }).catch(() => {});
+    else { navigator.clipboard?.writeText(url); showToast("Link copied!"); }
   };
 
-  /* ── Navigate to quote page (used by text + comment icon) ── */
-  const goQuote = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigate(quoteUrl);
-  };
+  const doReport = () => { closeMenu(); navigate(`/report/${post.id}`); };
+  const goQuote  = (e: React.MouseEvent) => { e.stopPropagation(); navigate(quoteUrl); };
 
-  const name     = post.is_anon ? "Anonymous" : (post.user?.name     || "User");
-  const uname    = post.is_anon ? ""           : (post.user?.username || "");
-  const timeStr  = post.timestamp || "";   // ← uses pre-formatted feedService value
+  /* Display strings */
+  const displayName  = post.is_anon ? "Anonymous"  : (post.user?.name     || "User");
+  const displayUname = post.is_anon ? ""            : (post.user?.username || "");
+  const timeStr      = post.timestamp || "";
 
-  /* ── Removed after pop-out ── */
   if (removed) return null;
 
-  /* ── Pop-out animation CSS ── */
   const popStyle: React.CSSProperties = popping ? {
-    animation: "spherePopOut 360ms cubic-bezier(.4,0,.6,1) forwards",
-    overflow:  "hidden",
-    pointerEvents: "none",
+    animation: "pcPopOut 360ms cubic-bezier(.4,0,.6,1) forwards",
+    overflow: "hidden", pointerEvents: "none",
   } : {};
 
-  return (
+  /* ════════════════════════════════════════════════════════════
+     SHARED PIECES
+  ════════════════════════════════════════════════════════════ */
+
+  /* Quote text */
+  const QuoteText = post.content ? (
+    <p onClick={goQuote}
+      className="text-gray-800 dark:text-gray-200 text-sm leading-relaxed break-words cursor-pointer mt-0.5">
+      {post.content.split(/(\s+)/).map((token: string, i: number) => {
+        const t = token.trim();
+        if (t.startsWith("#") && t.length > 1) return (
+          <span key={i}
+            onClick={e => { e.stopPropagation(); navigate(isLoggedIn ? `/feed/search?q=${encodeURIComponent(t)}` : `/search?q=${encodeURIComponent(t)}`); }}
+            className="text-blue-500 hover:underline cursor-pointer">{token}</span>
+        );
+        if (t.startsWith("@") && t.length > 1) return (
+          <span key={i} onClick={e => goMention(e, t)}
+            className="text-blue-500 hover:underline cursor-pointer font-medium">{token}</span>
+        );
+        return token;
+      })}
+    </p>
+  ) : null;
+
+  /* Requote embed — DB: posts.is_forward = true, posts.forward_of = uuid */
+  const RequoteEmbed = post.is_forward && post.originalPost ? (
+    <div onClick={e => { e.stopPropagation(); navigate(`/quote/${post.originalPost.id}`); }}
+      className="mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+      {post.forward_comment && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 italic">"{post.forward_comment}"</p>
+      )}
+      <div className="flex items-center gap-2 mb-1">
+        <Avatar src={post.originalPost.user?.avatar} name={post.originalPost.user?.name || "User"} size={18} />
+        <span className="text-xs font-bold text-gray-700 dark:text-gray-300">{post.originalPost.user?.name}</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">{post.originalPost.user?.username}</span>
+      </div>
+      <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-3">{post.originalPost.content}</p>
+    </div>
+  ) : null;
+
+  /* Media carousel — DB: post_media rows */
+  const MediaCarousel = allMedia.length > 0 ? (
+    <div ref={outerRef}
+      className="mt-2 rounded-2xl overflow-hidden relative select-none bg-black"
+      style={{ height: mediaHeight > 0 ? `${mediaHeight}px` : undefined, minHeight: "120px" }}
+      onTouchStart={onTS} onTouchEnd={onTE}>
+
+      {allMedia.map((item, i) => (
+        <div key={i} className="absolute inset-0 w-full h-full"
+          style={{
+            transform:  `translateX(${(i - mediaIdx) * 100}%)`,
+            transition: "transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94)",
+            willChange: "transform",
+          }}>
+
+          {item.type === "image" ? (
+            /* IMAGE */
+            <div className="relative w-full h-full overflow-hidden" onContextMenu={noCtx}>
+              {/* Cinematic blur bg */}
+              <img src={item.url} aria-hidden draggable={false}
+                className="absolute inset-0 w-full h-full object-cover scale-110 pointer-events-none"
+                style={{ filter: "blur(20px) brightness(.35) saturate(1.6)" }}
+                onContextMenu={noCtx} />
+              {/* Main image — click opens quote page (text area), NOT fullscreen */}
+              <img src={item.url} alt="" draggable={false}
+                className="relative z-10 w-full h-full object-contain"
+                onLoad={e => onImgLoad(e, i)}
+                onContextMenu={noCtx} />
+              {/* Fullscreen button on image */}
+              <button onClick={e => openFullscreen(e, i)}
+                className="absolute top-2 right-2 z-20 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-blue-600 transition-colors active:scale-90">
+                <Maximize2 size={13} />
+              </button>
+            </div>
+          ) : (
+            /* VIDEO */
+            <div className="relative w-full h-full overflow-hidden bg-black" onContextMenu={noCtx}>
+              {item.poster && (
+                <img src={item.poster} aria-hidden draggable={false}
+                  className="absolute inset-0 w-full h-full object-cover scale-110"
+                  style={{ filter: "blur(18px) brightness(.3) saturate(1.6)" }}
+                  onContextMenu={noCtx} />
+              )}
+              <video
+                ref={el => {
+                  videoRefs.current[i] = el;
+                  if (el) { (el as any).disableRemotePlayback = true; el.muted = videoMuted; el.volume = videoVol; }
+                }}
+                src={item.url} poster={item.poster}
+                muted={videoMuted} loop playsInline
+                className="relative z-10 w-full h-full object-contain"
+                onLoadedMetadata={e => onVideoMeta(e, i)}
+                onPlay={()  => i === mediaIdx && setVideoPlay(true)}
+                onPause={() => i === mediaIdx && setVideoPlay(false)}
+                onTimeUpdate={e => { if (i === mediaIdx) setVidCurrent(e.currentTarget.currentTime); }}
+                onContextMenu={noCtx} />
+
+              {/* Video controls overlay — active slide only */}
+              {i === mediaIdx && (
+                <div className="absolute inset-0 z-20 flex flex-col justify-between p-2.5 pointer-events-none">
+                  {/* TOP ROW: Play/Pause (left) | Volume + Fullscreen (right) */}
+                  <div className="flex items-center justify-between pointer-events-auto">
+                    <button onClick={vidTogglePlay} className={vBtnCls("play")}>
+                      {videoPlaying ? <Pause size={14} fill="white" /> : <Play size={14} fill="white" className="ml-0.5" />}
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                      {showVolBar && (
+                        <div className="flex items-center gap-1.5 bg-black/60 rounded-full px-2.5 py-1">
+                          <input type="range" min={0} max={1} step={0.05} value={videoVol}
+                            onChange={e => vidChangeVol(parseFloat(e.target.value))}
+                            onClick={e => e.stopPropagation()}
+                            className="w-16 h-1 rounded-full appearance-none cursor-pointer"
+                            style={{ background: `linear-gradient(to right,#3b82f6 ${videoVol*100}%,rgba(255,255,255,.25) 0%)` }} />
+                          <span className="text-white text-[9px] tabular-nums w-5">{Math.round(videoVol*100)}%</span>
+                        </div>
+                      )}
+                      <button onClick={vidToggleMute} className={vBtnCls("mute")}>
+                        {videoMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                      </button>
+                      <button onClick={e => openFullscreen(e, i)} className={vBtnCls("full")}>
+                        <Maximize2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Centre: big play icon when paused */}
+                  {!videoPlaying && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-14 h-14 rounded-full bg-black/40 flex items-center justify-center">
+                        <Play size={26} fill="white" className="text-white ml-1" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* BOTTOM: seek bar + timestamps */}
+                  <div className="flex items-center gap-2 pointer-events-auto">
+                    <span className="text-white text-[10px] font-mono shrink-0">{Tfmt(vidCurrent)}</span>
+                    <input type="range" min={0} max={vidDuration || 100} value={vidCurrent}
+                      onChange={vidSeek} onClick={e => e.stopPropagation()}
+                      className="flex-1 h-1 appearance-none rounded-full cursor-pointer"
+                      style={{ background: `linear-gradient(to right,#3b82f6 ${(vidCurrent/(vidDuration||1))*100}%,rgba(255,255,255,.25) 0%)` }} />
+                    <span className="text-white text-[10px] font-mono shrink-0">{Tfmt(vidDuration)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Prev / Next arrows — hover turns blue */}
+      {allMedia.length > 1 && mediaIdx > 0 && (
+        <button onClick={e => { e.stopPropagation(); setMediaIdx(p => p - 1); }}
+          className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 active:bg-blue-700 z-30 transition-colors">
+          <ChevronLeft size={16} />
+        </button>
+      )}
+      {allMedia.length > 1 && mediaIdx < allMedia.length - 1 && (
+        <button onClick={e => { e.stopPropagation(); setMediaIdx(p => p + 1); }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 active:bg-blue-700 z-30 transition-colors">
+          <ChevronRight size={16} />
+        </button>
+      )}
+
+      {/* Dot indicators */}
+      {allMedia.length > 1 && (
+        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1.5 z-30">
+          {allMedia.map((_, i) => (
+            <button key={i} onClick={e => { e.stopPropagation(); setMediaIdx(i); }}
+              className={`rounded-full transition-all ${i === mediaIdx ? "bg-white w-4 h-1.5" : "bg-white/50 w-1.5 h-1.5"}`} />
+          ))}
+        </div>
+      )}
+
+      {/* Counter badge */}
+      {allMedia.length > 1 && (
+        <div className="absolute top-2 left-2 z-30">
+          <span className="bg-black/40 text-white text-[10px] px-2 py-0.5 rounded-full font-medium">
+            {mediaIdx + 1} / {allMedia.length}
+          </span>
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  /* Action bar ── LEFT: Thoughts | Forward | Praise   RIGHT: Bookmark */
+  const ActionBar = (
+    <div className="flex items-center mt-2.5">
+      {/* Thoughts — clicking opens quote/thoughts page */}
+      {!post.comments_off && (
+        <button onClick={goQuote}
+          className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500 hover:text-blue-500 transition-colors mr-5">
+          <MessageCircle size={16} />
+          <span className="text-xs font-medium tabular-nums">{N(post.thoughts ?? 0)}</span>
+        </button>
+      )}
+
+      {/* Forward (DB: post_forwards) */}
+      <button onClick={doForward}
+        className={`flex items-center gap-1.5 transition-colors mr-5 ${
+          forwarded ? "text-green-500" : "text-gray-400 dark:text-gray-500 hover:text-green-500"
+        }`}>
+        <RefreshCw size={16} />
+        <span className="text-xs font-medium tabular-nums">{N(fwdCount)}</span>
+      </button>
+
+      {/* Praise (DB: post_praises) */}
+      <button onClick={doPraise}
+        className={`flex items-center gap-1.5 transition-colors ${
+          praised ? "text-orange-500" : "text-gray-400 dark:text-gray-500 hover:text-orange-500"
+        }`}>
+        <ThumbsUp size={16} className={praised ? "fill-orange-500" : ""} />
+        <span className="text-xs font-medium tabular-nums">{N(praiseCount)}</span>
+      </button>
+
+      <div className="flex-1" />
+
+      {/* Bookmark — right side, logged-in only (DB: bookmarks) */}
+      {isLoggedIn && (
+        <button onClick={doBookmark}
+          className={`transition-colors ${
+            bookmarked ? "text-blue-600 dark:text-blue-400" : "text-gray-400 dark:text-gray-500 hover:text-blue-500"
+          }`}>
+          <Bookmark size={16} className={bookmarked ? "fill-blue-600 dark:fill-blue-400" : ""} />
+        </button>
+      )}
+    </div>
+  );
+
+  /* ════════════════════════════════════════════════════════════
+     CARD WRAPPER — shared for OWN and OTHERS
+     headerControls is the only thing that differs in the header
+  ════════════════════════════════════════════════════════════ */
+  const renderCard = (headerControls: React.ReactNode) => (
     <>
-      {/* Keyframes injected inline once */}
       <style>{`
-        @keyframes spherePopOut {
-          0%   { opacity:1; transform:scale(1); max-height:600px }
-          35%  { opacity:.7; transform:scale(1.02) }
-          100% { opacity:0; transform:scale(.86); max-height:0; padding-top:0; padding-bottom:0; border:none }
+        @keyframes pcPopOut {
+          0%   { opacity:1; transform:scale(1); max-height:900px }
+          30%  { opacity:.5; transform:scale(1.015) }
+          100% { opacity:0; transform:scale(.88); max-height:0; padding:0; border:none }
         }
         @keyframes followBadge {
-          0%   { opacity:0; transform:translateY(6px) scale(.8) }
+          0%   { opacity:0; transform:translateY(6px) scale(.85) }
           20%  { opacity:1; transform:translateY(0) scale(1.05) }
           65%  { opacity:1 }
           100% { opacity:0; transform:translateY(-10px) scale(.9) }
@@ -564,478 +899,204 @@ export function PostCard({
         className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 relative"
         style={popStyle}
       >
-        {/* Following badge */}
+        {/* Toast notification */}
+        {toast && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-50 pointer-events-none
+            bg-gray-900 dark:bg-gray-700 text-white text-[12px] font-semibold
+            px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap">
+            {toast}
+          </div>
+        )}
+
+        {/* Follow animation badge */}
         {followAnim && (
           <div
             className="absolute top-3 right-12 z-20 flex items-center gap-1 bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg pointer-events-none"
-            style={{ animation: "followBadge 1.8s ease-out forwards" }}
-          >
+            style={{ animation: "followBadge 1.8s ease-out forwards" }}>
             <Check size={11} /> Following!
           </div>
         )}
 
-        {/* ── Main row ── */}
-        <div className="flex gap-3 px-4 pt-3 pb-2.5">
+        {/* Pinned label (own posts only) */}
+        {post.is_pinned && isOwn && (
+          <div className="flex items-center gap-1.5 px-4 pt-2.5 pb-0">
+            <Pin size={11} className="text-blue-500" />
+            <span className="text-[11px] text-blue-500 font-semibold tracking-wide">Pinned Quote</span>
+          </div>
+        )}
 
-          {/* Avatar — stops propagation, does NOT open quote page */}
+        {/* ── MAIN ROW ── */}
+        <div className="flex gap-3 px-4 pt-3 pb-3">
+
+          {/* Avatar — left column */}
           <div className="shrink-0 pt-0.5">
             {post.is_anon ? (
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-600 to-gray-800 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-600 to-gray-800 flex items-center justify-center cursor-default">
                 <Shield size={18} className="text-white" />
               </div>
             ) : (
-              <Avatar
-                src={post.user?.avatar}
-                name={name}
-                size={40}
-                onClick={goProfile}
-              />
+              <Avatar src={post.user?.avatar} name={displayName} size={40} onClick={goProfile} />
             )}
           </div>
 
-          {/* Right column */}
+          {/* Right content column */}
           <div className="flex-1 min-w-0">
 
-            {/* Header: name + controls */}
-            <div className="flex items-start justify-between gap-1 mb-1.5">
+            {/* HEADER: [Name · @username · time] + [headerControls] */}
+            <div className="flex items-start justify-between gap-2 mb-1.5">
 
-              {/* Name block — clickable → profile */}
-              <button onClick={goProfile} className="text-left min-w-0 flex-1">
+              {/* Name block — entire block clickable → profile */}
+              <button onClick={goProfile} className="text-left min-w-0 flex-1 group">
+                {/* Row 1: Full name + badges */}
                 <div className="flex items-center gap-1 flex-wrap leading-tight">
-                  <span className="font-bold text-gray-900 dark:text-white text-sm hover:underline">
-                    {name}
+                  <span className="font-bold text-gray-900 dark:text-white text-sm group-hover:underline truncate max-w-[160px]">
+                    {displayName}
                   </span>
-                  {/* Verified badge — from DB is_verified */}
+                  {/* Verified badge (DB: profiles.is_verified) */}
                   {post.user?.isVerified && !post.is_anon && (
                     <span className="inline-flex items-center justify-center w-[15px] h-[15px] bg-blue-500 rounded-full shrink-0">
                       <Check size={9} className="text-white" strokeWidth={3} />
                     </span>
                   )}
-                  {/* Org badge */}
+                  {/* Org badge (DB: profiles.is_org) */}
                   {post.user?.is_org && !post.is_anon && (
                     <span className="inline-flex items-center justify-center w-[15px] h-[15px] bg-purple-500 rounded-full shrink-0">
                       <Check size={9} className="text-white" strokeWidth={3} />
                     </span>
                   )}
+                  {/* Anon tag */}
+                  {post.is_anon && (
+                    <span className="text-[10px] bg-gray-700 dark:bg-gray-600 text-gray-300 px-1.5 py-0.5 rounded-full font-semibold shrink-0">
+                      anon
+                    </span>
+                  )}
                 </div>
-                {/* Username + timestamp on second line */}
+                {/* Row 2: @username · time */}
                 <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-tight">
-                  {post.is_anon
-                    ? timeStr
-                    : `${uname} · ${timeStr}`
-                  }
+                  {post.is_anon ? timeStr : `${displayUname} · ${timeStr}`}
                 </div>
               </button>
 
-              {/* Follow button (other's post, logged-in only) + three-dot */}
-              <div className="flex items-center gap-1 shrink-0">
-                {!isOwn && !post.is_anon && isLoggedIn && (
-                  <button
-                    onClick={doFollow}
-                    className={[
-                      "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold transition-colors",
-                      following
-                        ? "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950"
-                        : "text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950",
-                    ].join(" ")}
-                  >
-                    {following ? <Check size={11} /> : <UserPlus size={11} />}
-                    <span>{following ? "Following" : "Follow"}</span>
-                  </button>
-                )}
-
-                {/* THREE VERTICAL DOTS — MoreVertical icon */}
-                <button
-                  ref={dotBtnRef}
-                  onClick={openMenu}
-                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                >
-                  <MoreVertical size={16} />
-                </button>
-              </div>
+              {/* Header right controls (Follow btn + ⋮ for others, just ⋮ for own) */}
+              {headerControls}
             </div>
 
-            {/* ── Quote text — clicking opens quote page ── */}
-            {post.content ? (
-              <p
-                onClick={goQuote}
-                className="text-gray-800 dark:text-gray-200 text-sm leading-relaxed break-words cursor-pointer"
-              >
-                {post.content.split(/(\s+)/).map((token: string, i: number) => {
-                  const t = token.trim();
-                  if (t.startsWith("#") && t.length > 1) {
-                    return (
-                      <span key={i}
-                        onClick={e => {
-                          e.stopPropagation();
-                          navigate(
-                            isLoggedIn
-                              ? `/feed/search?q=${encodeURIComponent(t)}`
-                              : `/search?q=${encodeURIComponent(t)}`
-                          );
-                        }}
-                        className="text-blue-500 hover:underline cursor-pointer"
-                      >{token}</span>
-                    );
-                  }
-                  if (t.startsWith("@") && t.length > 1) {
-                    return (
-                      <span key={i}
-                        onClick={e => goMention(e, t)}
-                        className="text-blue-500 hover:underline cursor-pointer font-medium"
-                      >{token}</span>
-                    );
-                  }
-                  return token;
-                })}
-              </p>
-            ) : null}
+            {/* Quote text → clicking opens quote/thoughts page */}
+            {QuoteText}
 
-            {/* ── Requote embed ── */}
-            {post.is_forward && post.originalPost && (
-              <div
-                onClick={e => { e.stopPropagation(); navigate(`/quote/${post.originalPost.id}`); }}
-                className="mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-750 transition-colors"
-              >
-                {post.forward_comment && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 italic">
-                    "{post.forward_comment}"
-                  </p>
-                )}
-                <div className="flex items-center gap-2 mb-1">
-                  <Avatar
-                    src={post.originalPost.user?.avatar}
-                    name={post.originalPost.user?.name || "User"}
-                    size={18}
-                  />
-                  <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
-                    {post.originalPost.user?.name}
-                  </span>
-                  <span className="text-xs text-gray-400 dark:text-gray-500">
-                    {post.originalPost.user?.username}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-3">
-                  {post.originalPost.content}
-                </p>
-              </div>
-            )}
+            {/* Requote embed */}
+            {RequoteEmbed}
 
-            {/* ── Media slider ── */}
-            {allMedia.length > 0 && (
-              <div
-                ref={outerRef}
-                className="mt-2 rounded-2xl overflow-hidden relative select-none bg-black"
-                style={{
-                  height: mediaHeight > 0 ? `${mediaHeight}px` : undefined,
-                  minHeight: "120px",
-                }}
-                onTouchStart={onTS}
-                onTouchEnd={onTE}
-              >
-                {allMedia.map((item, i) => (
-                  <div
-                    key={i}
-                    className="absolute inset-0 w-full h-full"
-                    style={{
-                      transform:  `translateX(${(i - mediaIdx) * 100}%)`,
-                      transition: "transform .28s cubic-bezier(.4,0,.2,1)",
-                      willChange: "transform",
-                    }}
-                  >
-                    {item.type === "image" ? (
-                      /* IMAGE — tap opens MediaPage */
-                      <div
-                        className="relative w-full h-full overflow-hidden cursor-pointer"
-                        onClick={e => { e.stopPropagation(); navigate(`/media/${post.id}/${i}`); }}
-                        onContextMenu={noCtx}
-                      >
-                        {/* Blurred cinematic background */}
-                        <img
-                          src={item.url} aria-hidden draggable={false}
-                          className="absolute inset-0 w-full h-full object-cover scale-110 pointer-events-none"
-                          style={{ filter: "blur(18px) brightness(.4) saturate(1.6)" }}
-                          onContextMenu={noCtx}
-                        />
-                        {/* Main image contained */}
-                        <img
-                          src={item.url} alt="quote media" draggable={false}
-                          className="relative z-10 w-full h-full object-contain"
-                          onLoad={e => onImgLoad(e, i)}
-                          onContextMenu={noCtx}
-                        />
-                      </div>
-                    ) : (
-                      /* VIDEO */
-                      <div
-                        className="relative w-full h-full overflow-hidden bg-black"
-                        onContextMenu={noCtx}
-                      >
-                        {/* Blurred poster background */}
-                        {item.poster && (
-                          <img
-                            src={item.poster} aria-hidden draggable={false}
-                            className="absolute inset-0 w-full h-full object-cover scale-110"
-                            style={{ filter: "blur(18px) brightness(.3) saturate(1.6)" }}
-                            onContextMenu={noCtx}
-                          />
-                        )}
+            {/* Media carousel */}
+            {MediaCarousel}
 
-                        <video
-                          ref={el => {
-                            videoRefs.current[i] = el;
-                            if (el) {
-                              (el as any).disableRemotePlayback = true;
-                              el.muted = videoMuted;
-                            }
-                          }}
-                          src={item.url}
-                          poster={item.poster}
-                          muted={videoMuted}
-                          loop
-                          playsInline
-                          className="relative z-10 w-full h-full object-contain"
-                          onLoadedMetadata={e => onVideoMeta(e, i)}
-                          onPlay={() => i === mediaIdx && setVideoPlaying(true)}
-                          onPause={() => i === mediaIdx && setVideoPlaying(false)}
-                          onTimeUpdate={e => {
-                            if (i === mediaIdx) setVideoCurrent(e.currentTarget.currentTime);
-                          }}
-                          onContextMenu={noCtx}
-                        />
-
-                        {/* Video controls — only for active slide */}
-                        {i === mediaIdx && (
-                          <div className="absolute inset-0 z-20 flex flex-col justify-between p-2.5 pointer-events-none">
-                            {/* Top row */}
-                            <div className="flex items-center justify-between pointer-events-auto">
-                              {/* Play / Pause — LEFT */}
-                              <VCtrl onClick={vidTogglePlay}>
-                                {videoPlaying
-                                  ? <Pause size={14} fill="white" />
-                                  : <Play  size={14} fill="white" className="ml-0.5" />}
-                              </VCtrl>
-
-                              {/* Volume + Fullscreen — RIGHT */}
-                              <div className="flex items-center gap-1.5">
-                                {/* Volume button + vertical bar */}
-                                <div className="flex items-center gap-1 bg-black/45 rounded-full px-2 py-1">
-                                  <VCtrl onClick={vidToggleMute}>
-                                    {videoMuted
-                                      ? <VolumeX size={13} />
-                                      : <Volume2 size={13} />}
-                                  </VCtrl>
-                                  {/* Vertical level bar */}
-                                  <div className="w-1 h-8 bg-white/20 rounded-full overflow-hidden flex flex-col-reverse">
-                                    <div
-                                      className="w-full bg-white rounded-full transition-all duration-150"
-                                      style={{ height: videoMuted ? "0%" : "100%" }}
-                                    />
-                                  </div>
-                                </div>
-                                <VCtrl onClick={vidFullscreen}>
-                                  <Maximize2 size={13} />
-                                </VCtrl>
-                              </div>
-                            </div>
-
-                            {/* Big play overlay when paused */}
-                            {!videoPlaying && (
-                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                <div className="w-14 h-14 rounded-full bg-black/40 flex items-center justify-center">
-                                  <Play size={26} fill="white" className="text-white ml-1" />
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Seek bar + timestamps — BOTTOM */}
-                            <div className="flex items-center gap-2 pointer-events-auto">
-                              <span className="text-white text-[10px] font-mono shrink-0">
-                                {T(videoCurrent)}
-                              </span>
-                              <input
-                                type="range"
-                                min={0}
-                                max={videoDuration || 100}
-                                value={videoCurrent}
-                                onChange={vidSeek}
-                                onClick={e => e.stopPropagation()}
-                                className="flex-1 h-1 appearance-none rounded-full cursor-pointer"
-                                style={{
-                                  background: `linear-gradient(to right, white ${(videoCurrent / (videoDuration || 1)) * 100}%, rgba(255,255,255,.25) 0%)`,
-                                }}
-                              />
-                              <span className="text-white text-[10px] font-mono shrink-0">
-                                {T(videoDuration)}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {/* Prev / Next arrows */}
-                {allMedia.length > 1 && mediaIdx > 0 && (
-                  <button
-                    onClick={e => { e.stopPropagation(); setMediaIdx(p => p - 1); }}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 z-30 transition-colors"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                )}
-                {allMedia.length > 1 && mediaIdx < allMedia.length - 1 && (
-                  <button
-                    onClick={e => { e.stopPropagation(); setMediaIdx(p => p + 1); }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-blue-600 z-30 transition-colors"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                )}
-
-                {/* Dot indicators */}
-                {allMedia.length > 1 && (
-                  <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-1.5 z-30">
-                    {allMedia.map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={e => { e.stopPropagation(); setMediaIdx(i); }}
-                        className={`rounded-full transition-all ${
-                          i === mediaIdx ? "bg-white w-4 h-1.5" : "bg-white/50 w-1.5 h-1.5"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Counter badge */}
-                {allMedia.length > 1 && (
-                  <div className="absolute top-2 right-2 z-30">
-                    <span className="bg-black/40 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                      {mediaIdx + 1}/{allMedia.length}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Action bar ── */}
-            {!post.comments_off && (
-              <div className="flex items-center gap-4 mt-2.5">
-
-                {/* Thoughts — opens quote page */}
-                <button
-                  onClick={goQuote}
-                  className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
-                >
-                  <MessageCircle size={16} />
-                  <span className="text-xs font-medium">{N(post.thoughts ?? 0)}</span>
-                </button>
-
-                {/* Forward */}
-                <button
-                  onClick={doForward}
-                  className={`flex items-center gap-1.5 transition-colors ${
-                    forwarded
-                      ? "text-green-500"
-                      : "text-gray-400 dark:text-gray-500 hover:text-green-500"
-                  }`}
-                >
-                  <RefreshCw size={16} />
-                  <span className="text-xs font-medium">{N(fwdCount)}</span>
-                </button>
-
-                {/* Praise */}
-                <button
-                  onClick={doPraise}
-                  className={`flex items-center gap-1.5 transition-colors ${
-                    liked
-                      ? "text-orange-500"
-                      : "text-gray-400 dark:text-gray-500 hover:text-orange-500"
-                  }`}
-                >
-                  <ThumbsUp size={16} className={liked ? "fill-orange-500" : ""} />
-                  <span className="text-xs font-medium">{N(likeCount)}</span>
-                </button>
-
-                <div className="flex-1" />
-
-                {/* Bookmark — logged-in only, shows filled blue when saved */}
-                {isLoggedIn && (
-                  <button
-                    onClick={doBookmark}
-                    className={`transition-colors ${
-                      bookmarked
-                        ? "text-blue-600 dark:text-blue-400"
-                        : "text-gray-400 dark:text-gray-500 hover:text-blue-500"
-                    }`}
-                  >
-                    <Bookmark
-                      size={16}
-                      className={bookmarked ? "fill-blue-600 dark:fill-blue-400" : ""}
-                    />
-                  </button>
-                )}
-              </div>
-            )}
+            {/* Action bar: Thoughts | Forward | Praise … Bookmark */}
+            {ActionBar}
 
           </div>
         </div>
       </div>
 
-      {/* ════════════════════════════════════════════
-          THREE-DOT MENU — position:fixed
-          z-[9998] backdrop catches every outside tap
-          z-[9999] menu sits on top
-      ════════════════════════════════════════════ */}
-      {menuPos && (
+      {/* THREE-DOT MENU — fixed position, appears just below the button */}
+      {menuOpen && (
         <>
-          {/* Backdrop — covers entire screen, closes menu on any tap */}
-          <div
-            className="fixed inset-0 z-[9998]"
+          <div className="fixed inset-0 z-[9998]"
             onClick={closeMenu}
-            onTouchStart={e => { e.preventDefault(); closeMenu(); }}
-          />
-
+            onTouchStart={e => { e.preventDefault(); closeMenu(); }} />
           <div
-            className="fixed z-[9999] bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-2xl overflow-hidden py-1"
-            style={{ left: menuPos.left, top: menuPos.top, width: 196 }}
-            onClick={e => e.stopPropagation()}
-          >
+            className="z-[9999] bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 rounded-2xl shadow-2xl overflow-hidden py-1.5"
+            style={menuStyle}
+            onClick={e => e.stopPropagation()}>
+
             {isOwn ? (
-              /* ── OWN QUOTE ── */
+              /* ══ OWN POST MENU ══ */
               <>
-                <MRow icon={<RefreshCw size={14} />} label="Requote"    onClick={doRequote} />
-                <MRow icon={<Pin size={14} />} label={post.is_pinned ? "Unpin" : "Pin"} onClick={doPin} />
-                <MRow icon={<Share2 size={14} />}     label="Share"     onClick={doShare} />
-                <div className="h-px bg-gray-100 dark:bg-gray-700 mx-3 my-1" />
-                <MRow icon={<Trash2 size={14} />}     label="Delete"    onClick={doDelete} danger />
-                <div className="h-px bg-gray-100 dark:bg-gray-700 mx-3 my-1" />
-                <MRow icon={<X size={14} />}           label="Cancel"   onClick={closeMenu} muted />
+                <MRow icon={<RefreshCw size={15} />} label="Requote" onClick={doRequote} />
+                <MRow icon={<Pin size={15} />} label={post.is_pinned ? "Unpin from profile" : "Pin to profile"} onClick={doPin} />
+                <MRow icon={<Share2 size={15} />} label="Share" onClick={doShare} />
+                <MDivider />
+                <MRow icon={<Trash2 size={15} />} label="Delete Quote" onClick={doDelete} danger />
+                <MDivider />
+                <MRow icon={<X size={15} />} label="Cancel" onClick={closeMenu} muted />
               </>
             ) : isLoggedIn ? (
-              /* ── OTHER'S QUOTE (logged in) ── */
+              /* ══ OTHERS' POST MENU (logged-in) ══ */
               <>
-                <MRow icon={<RefreshCw size={14} />}  label="Requote"              onClick={doRequote} />
-                <MRow icon={<Ban size={14} />}         label={`Block ${uname}`}    onClick={doBlock}  danger />
-                <MRow icon={<Share2 size={14} />}      label="Share"               onClick={doShare} />
-                <MRow icon={<Flag size={14} />}        label="Report"              onClick={doReport} danger />
-                <div className="h-px bg-gray-100 dark:bg-gray-700 mx-3 my-1" />
-                <MRow icon={<X size={14} />}           label="Cancel"              onClick={closeMenu} muted />
+                <MRow icon={<RefreshCw size={15} />} label="Requote" onClick={doRequote} />
+                {!post.is_anon && (
+                  <MRow
+                    icon={following ? <Check size={15} /> : <UserPlus size={15} />}
+                    label={following ? `Unfollow ${displayUname}` : `Follow ${displayUname}`}
+                    onClick={() => { closeMenu(); doFollow(); }}
+                  />
+                )}
+                <MRow icon={<Share2 size={15} />} label="Share" onClick={doShare} />
+                <MDivider />
+                <MRow icon={<Flag size={15} />} label="Report" onClick={doReport} danger />
+                {!post.is_anon && (
+                  <MRow icon={<Ban size={15} />} label={`Block ${displayUname}`} onClick={doBlock} danger />
+                )}
+                <MDivider />
+                <MRow icon={<X size={15} />} label="Cancel" onClick={closeMenu} muted />
               </>
             ) : (
-              /* ── GUEST ── */
+              /* ══ GUEST MENU ══ */
               <>
-                <MRow icon={<Share2 size={14} />}  label="Share"      onClick={doShare} />
-                <MRow icon={<Link2 size={14} />}   label="Copy link"  onClick={doCopy} />
-                <div className="h-px bg-gray-100 dark:bg-gray-700 mx-3 my-1" />
-                <MRow icon={<X size={14} />}       label="Cancel"     onClick={closeMenu} muted />
+                <MRow icon={<Share2 size={15} />} label="Share" onClick={doShare} />
+                <MDivider />
+                <MRow icon={<X size={15} />} label="Cancel" onClick={closeMenu} muted />
               </>
             )}
           </div>
         </>
       )}
+
+      {/* Fullscreen viewer */}
+      {fullscreen && allMedia.length > 0 && (
+        <FullscreenViewer
+          media={allMedia}
+          startIdx={mediaIdx}
+          onClose={() => setFullscreen(false)}
+        />
+      )}
     </>
+  );
+
+  /* ══════════════════════════════════════════════════════════════
+     OWN POST — no Follow button, just ⋮
+  ══════════════════════════════════════════════════════════════ */
+  if (isOwn) {
+    return renderCard(
+      <button ref={dotRef} onClick={openMenu}
+        className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors shrink-0 mt-0.5">
+        <MoreVertical size={17} />
+      </button>
+    );
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     OTHERS' POST — Follow/Following button + ⋮
+  ══════════════════════════════════════════════════════════════ */
+  return renderCard(
+    <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+      {isLoggedIn && !post.is_anon && (
+        <button onClick={e => doFollow(e)}
+          className={[
+            "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all active:scale-95",
+            following
+              ? "border-green-300 dark:border-green-700 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/50"
+              : "border-blue-300 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50",
+          ].join(" ")}>
+          {following
+            ? <><Check size={11} /><span className="ml-0.5">Following</span></>
+            : <><UserPlus size={11} /><span className="ml-0.5">Follow</span></>
+          }
+        </button>
+      )}
+      <button ref={dotRef} onClick={openMenu}
+        className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+        <MoreVertical size={17} />
+      </button>
+    </div>
   );
 }

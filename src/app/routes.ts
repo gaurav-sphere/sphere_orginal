@@ -23,7 +23,8 @@ import { BlockedListPage }      from "../pages/BlockedListPage";
 import { MessageSettingsPage }  from "../pages/MessageSettingsPage";
 import { ReportPostPage }       from "../pages/ReportPostPage";
 import { ForgotPasswordPage }   from "../pages/ForgotPasswordPage";
-import { AnonPinPage }          from "../pages/AnonPinPage";
+import { AnonPinPage } from "../pages/AnonPinPage"
+import { NotificationsPage }      from "../pages/NotificationsPage";
 
 export const router = createBrowserRouter([
   /* ── Guest routes ── */
@@ -62,4 +63,5 @@ export const router = createBrowserRouter([
   { path: "/settings",                  Component: SettingsPage },
   { path: "/settings/account-info",     Component: AccountInfoPage },
   { path: "/settings/anon-pin",         Component: AnonPinPage },
+  { path: "/notifications",             Component: NotificationsPage },
 ]);
