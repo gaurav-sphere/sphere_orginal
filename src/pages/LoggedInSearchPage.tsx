@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import {
   Search, X, TrendingUp, Users, Building2,
   Flame, Trophy, FlaskConical, Tv, Newspaper,
-  UserPlus, Check, Loader2,
+  UserPlus, Check, Loader2, MessageCircle,
 } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { PostCard } from "../components/PostCard";
@@ -125,6 +125,7 @@ function PersonRow({ person, currentUserId }: { person: PersonResult; currentUse
   const navigate = useNavigate();
   const [following, setFollowing] = useState(false);
   const [imgErr,    setImgErr]    = useState(false);
+  const [dmLoading, setDmLoading] = useState(false);
 
   useEffect(() => {
     if (!currentUserId || !person.id) return;
@@ -142,6 +143,37 @@ function PersonRow({ person, currentUserId }: { person: PersonResult; currentUse
       setFollowing(true);
       await supabase.from("follows").insert({ follower_id: currentUserId, following_id: person.id });
     }
+  };
+
+  const handleDM = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentUserId || dmLoading) return;
+    setDmLoading(true);
+    try {
+      // Check if conversation already exists (participant order can be either way)
+      const { data: existing } = await supabase
+        .from("conversations")
+        .select("id")
+        .or(`and(participant_1.eq.${currentUserId},participant_2.eq.${person.id}),and(participant_1.eq.${person.id},participant_2.eq.${currentUserId})`)
+        .maybeSingle();
+
+      if (existing?.id) {
+        navigate("/messages");
+        return;
+      }
+
+      // Create new conversation
+      const { data: newConv } = await supabase
+        .from("conversations")
+        .insert({ participant_1: currentUserId, participant_2: person.id })
+        .select("id")
+        .single();
+
+      if (newConv?.id) navigate("/messages");
+    } catch (e) {
+      console.error("DM error:", e);
+    }
+    setDmLoading(false);
   };
 
   return (
@@ -162,12 +194,21 @@ function PersonRow({ person, currentUserId }: { person: PersonResult; currentUse
         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">@{person.username}</p>
       </div>
       {currentUserId !== person.id && (
-        <button onClick={handleFollow}
-          className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-            following ? "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300" : "bg-blue-600 text-white hover:bg-blue-700"
-          }`}>
-          {following ? <><Check size={11} /> Following</> : <><UserPlus size={11} /> Follow</>}
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* DM button */}
+          <button onClick={handleDM}
+            className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-950/50 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
+            title="Send message">
+            <MessageCircle size={14} />
+          </button>
+          {/* Follow button */}
+          <button onClick={handleFollow}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+              following ? "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300" : "bg-blue-600 text-white hover:bg-blue-700"
+            }`}>
+            {following ? <><Check size={11} /> Following</> : <><UserPlus size={11} /> Follow</>}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -298,12 +339,14 @@ function SearchContent({
   query, setQuery, activeFilter, setActiveFilter,
   results, trending, people, societies,
   searchLoading, trendingLoading, peopleLoading,
+  suggestedPeople, suggestLoading,
   currentUserId, inputRef,
 }: {
   query: string; setQuery: (q: string) => void;
   activeFilter: string; setActiveFilter: (f: string) => void;
   results: any[]; trending: TrendingTag[]; people: PersonResult[]; societies: SocietyResult[];
   searchLoading: boolean; trendingLoading: boolean; peopleLoading: boolean;
+  suggestedPeople: PersonResult[]; suggestLoading: boolean;
   currentUserId?: string; inputRef: React.RefObject<HTMLInputElement>;
 }) {
   return (
@@ -349,9 +392,27 @@ function SearchContent({
         {activeFilter === "people" && (
           <div>
             {!query.trim() ? (
-              <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-                <Users size={36} className="text-gray-300 dark:text-gray-700 mb-3" />
-                <p className="text-sm text-gray-500 dark:text-gray-400">Type a name or username to search people</p>
+              <div>
+                {/* Suggested people header */}
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-50 dark:border-gray-800">
+                  <Users size={14} className="text-blue-500" />
+                  <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Suggested People</p>
+                </div>
+                {suggestLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 size={20} className="animate-spin text-blue-400" />
+                  </div>
+                ) : suggestedPeople.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+                    <Users size={36} className="text-gray-300 dark:text-gray-700 mb-3" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No suggestions yet</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-600 mt-1">Search for people by name or @username</p>
+                  </div>
+                ) : (
+                  suggestedPeople.map(p => (
+                    <PersonRow key={p.id} person={p} currentUserId={currentUserId} />
+                  ))
+                )}
               </div>
             ) : peopleLoading ? (
               <div className="flex items-center justify-center py-12"><Loader2 size={22} className="animate-spin text-blue-400" /></div>
@@ -438,6 +499,8 @@ export function LoggedInSearchPage() {
   const [searchLoading,   setSearchLoading]   = useState(false);
   const [trendingLoading, setTrendingLoading] = useState(false);
   const [peopleLoading,   setPeopleLoading]   = useState(false);
+  const [suggestedPeople, setSuggestedPeople] = useState<PersonResult[]>([]);
+  const [suggestLoading,  setSuggestLoading]  = useState(false);
 
   /* Load trending when filter changes */
   useEffect(() => {
@@ -478,6 +541,7 @@ export function LoggedInSearchPage() {
           activeFilter={activeFilter} setActiveFilter={setActiveFilter}
           results={results} trending={trending} people={people} societies={societies}
           searchLoading={searchLoading} trendingLoading={trendingLoading} peopleLoading={peopleLoading}
+          suggestedPeople={suggestedPeople} suggestLoading={suggestLoading}
           currentUserId={user?.id} inputRef={inputRef}
         />
       </div>

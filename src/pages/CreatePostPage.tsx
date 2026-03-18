@@ -198,10 +198,6 @@ function AnonPinModal({ onSuccess, onCancel }: { onSuccess:()=>void; onCancel:()
 /* ══════════════════════════════════════════════════════════════
    MEDIA PREVIEW SLIDER MODAL
 ══════════════════════════════════════════════════════════════ */
-
-import { useState } from "react";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
-
 function MediaSlider({
   items,
   startIdx,

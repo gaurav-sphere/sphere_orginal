@@ -16,7 +16,7 @@ export const mockUsers = [
   {
     id: "u2",
     name: "Priya Sharma",
-    username: "@priya_s",
+    username: "rajan",
     anonUsername: "@silent_moon_12",
     avatar: "https://images.unsplash.com/photo-1753288695169-e51f5a3ff24f?w=80&h=80&fit=crop",
     followers: 3870,

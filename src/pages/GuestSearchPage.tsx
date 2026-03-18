@@ -185,7 +185,7 @@ async function fetchTrendingForCategory(catId: string): Promise<TrendingTag[]> {
 
     let query = supabase
       .from("posts")
-      .select("content")
+      .select("body")
       .order("created_at", { ascending: false })
       .limit(300);
 
@@ -193,7 +193,7 @@ async function fetchTrendingForCategory(catId: string): Promise<TrendingTag[]> {
     if (keywords.length > 0) {
       /* Build OR filter: content ilike '%keyword1%' or ... */
       const orFilter = keywords.slice(0, 10) // limit to avoid URL too long
-        .map(kw => `content.ilike.%${kw}%`)
+        .map(kw => `body.ilike.%${kw}%`)
         .join(",");
       query = query.or(orFilter);
     }
@@ -204,7 +204,7 @@ async function fetchTrendingForCategory(catId: string): Promise<TrendingTag[]> {
     /* Extract and count hashtags */
     const counts: Record<string, number> = {};
     for (const row of data) {
-      const tags = (row.content as string).match(/#[\w\u0900-\u097F]+/g) ?? [];
+      const tags = (row.body as string).match(/#[\w\u0900-\u097F]+/g) ?? [];
       for (const t of tags) {
         const key = t.toLowerCase();
         counts[key] = (counts[key] ?? 0) + 1;
@@ -226,31 +226,32 @@ async function searchPosts(query: string): Promise<any[]> {
     const { data } = await supabase
       .from("posts")
       .select(`
-        id, content, media_url, created_at,
-        likes_count, reposts_count, comments_count, user_id,
-        profile:profiles!posts_user_id_fkey (
-          name, username, avatar_url, is_verified
+        id, body, created_at,
+        likes_count, forwards_count, thoughts_count, user_id,
+        profiles!posts_user_id_fkey (
+          id, name, username, avatar_url, is_verified
         )
       `)
-      .ilike("content", `%${query.trim()}%`)
+      .ilike("body", `%${query.trim()}%`)
       .order("created_at", { ascending: false })
       .limit(30);
 
     return (data ?? []).map((p: any) => ({
       id:         p.id,
-      content:    p.content,
+      content:    p.body,
+      body:       p.body,
       timestamp:  timeAgo(p.created_at),
-      thoughts:   p.comments_count ?? 0,
+      thoughts:   p.thoughts_count ?? 0,
       likes:      p.likes_count    ?? 0,
-      reposts:    p.reposts_count  ?? 0,
+      reposts:    p.forwards_count ?? 0,
       user: {
         id:         p.user_id,
-        name:       p.profile?.name     ?? "User",
-        username:   `@${p.profile?.username ?? "user"}`,
-        avatar:     p.profile?.avatar_url ?? null,
-        isVerified: p.profile?.is_verified ?? false,
+        name:       p.profiles?.name     ?? "User",
+        username:   `@${p.profiles?.username ?? "user"}`,
+        avatar:     p.profiles?.avatar_url ?? null,
+        isVerified: p.profiles?.is_verified ?? false,
       },
-      image:       p.media_url ?? null,
+      image:       null,
       isAnonymous: false,
       isLiked:     false,
       isReposted:  false,
