@@ -1,150 +1,233 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { ArrowLeft, Shield, Check, Lock, Eye, EyeOff, AlertCircle, Image as ImageIcon } from "lucide-react";
+import {
+  ArrowLeft, Shield, Check, Lock, AlertCircle,
+  Camera, Upload, X, Loader2,
+} from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase, setAnonPin, verifyAnonPin } from "../lib/supabase";
 
-/* ══════════════════════════════════════════════════════════════
-   AnonPinPage
-   Route: /settings/anon-pin
+/*
+  AnonPinPage  —  /settings/anon-pin
+  ?mode=create   first-time setup (avatar + PIN)
+  ?mode=change   change existing PIN
+  ?from=X        after success navigate back to /X
 
-   URL params:
-   ?mode=create  — first-time PIN setup (from create-post flow or settings)
-   ?mode=change  — change existing PIN (default)
-   ?from=create-post — after success, return to /create-post
+  DB NOTE: Run this SQL once to enable anon avatars:
+    ALTER TABLE profiles ADD COLUMN IF NOT EXISTS anon_avatar_url text;
 
-   CREATE FLOW (mode=create, anon_pin_set = false):
-     Step 1: Enter new PIN
-     Step 2: Confirm PIN
-     → calls setAnonPin(pin)
+  CREATE FLOW:
+    → Pick avatar (optional)
+    → Enter PIN  (step 1)
+    → Confirm PIN (step 2, live match feedback)
+    → Save → back to ?from page
 
-   CHANGE FLOW (mode=change, anon_pin_set = true):
-     Step 1: Enter current PIN (calls verifyAnonPin to validate)
-     Step 2: Enter new PIN
-     Step 3: Confirm new PIN
-     → calls setAnonPin(newPin, currentPin)
+  CHANGE FLOW:
+    → Verify current PIN
+    → Enter new PIN
+    → Confirm new PIN  (live match)
+    → Save → back
+*/
 
-   NOTE: Anon avatar is shown as "coming soon" since the DB
-   does not yet have an anon_avatar_url column in profiles.
-   To add it: ALTER TABLE profiles ADD COLUMN anon_avatar_url text;
-══════════════════════════════════════════════════════════════ */
+/* ─── Preset avatars ─────────────────────────────────────────── */
+const PRESET_AVATARS = [
+  { id: "ghost",   emoji: "👻", bg: "#6366f1" },
+  { id: "ninja",   emoji: "🥷", bg: "#0f172a" },
+  { id: "robot",   emoji: "🤖", bg: "#0891b2" },
+  { id: "alien",   emoji: "👽", bg: "#16a34a" },
+  { id: "panda",   emoji: "🐼", bg: "#374151" },
+  { id: "fox",     emoji: "🦊", bg: "#ea580c" },
+  { id: "cat",     emoji: "🐱", bg: "#7c3aed" },
+  { id: "wolf",    emoji: "🐺", bg: "#1e40af" },
+];
 
-/* ── PIN dots input ── */
-function PinDots({
-  label, value, onChange, error, autoFocus = false,
+type PresetId = typeof PRESET_AVATARS[number]["id"];
+
+interface AnonAvatar {
+  type:   "preset" | "upload";
+  presetId?: PresetId;
+  uploadUrl?: string;   // object URL for preview
+  uploadFile?: File;    // for upload
+}
+
+/* ─── Avatar picker ──────────────────────────────────────────── */
+function AvatarPicker({
+  value, onChange, anonUsername,
 }: {
-  label:     string;
-  value:     string;
-  onChange:  (v: string) => void;
-  error?:    string;
+  value:        AnonAvatar | null;
+  onChange:     (a: AnonAvatar | null) => void;
+  anonUsername: string;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    if (file.size > 5 * 1024 * 1024) { alert("Image must be under 5MB"); return; }
+    onChange({ type: "upload", uploadUrl: URL.createObjectURL(file), uploadFile: file });
+  };
+
+  const preset = value?.type === "preset"
+    ? PRESET_AVATARS.find(p => p.id === value.presetId)
+    : null;
+
+  return (
+    <div className="w-full">
+      {/* Current avatar preview + username */}
+      <div className="flex flex-col items-center gap-2 mb-5">
+        <div className="relative">
+          <div className="w-20 h-20 rounded-full overflow-hidden ring-4 ring-gray-100 dark:ring-gray-800">
+            {value?.type === "upload" && value.uploadUrl ? (
+              <img src={value.uploadUrl} alt="anon" className="w-full h-full object-cover" />
+            ) : preset ? (
+              <div className="w-full h-full flex items-center justify-center text-4xl"
+                style={{ background: preset.bg }}>
+                {preset.emoji}
+              </div>
+            ) : (
+              <div className="w-full h-full bg-gray-800 dark:bg-gray-700 flex items-center justify-center">
+                <Shield size={32} className="text-gray-400" />
+              </div>
+            )}
+          </div>
+          {value && (
+            <button onClick={() => onChange(null)}
+              className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center shadow-md">
+              <X size={12} className="text-white" />
+            </button>
+          )}
+        </div>
+        <div className="text-center">
+          <p className="text-xs font-bold text-gray-500 dark:text-gray-400">@{anonUsername}</p>
+          <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-0.5">Your anonymous identity</p>
+        </div>
+      </div>
+
+      {/* Preset grid */}
+      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 text-center">
+        Choose an avatar
+      </p>
+      <div className="grid grid-cols-4 gap-2.5 mb-3">
+        {PRESET_AVATARS.map(p => (
+          <button key={p.id} onClick={() => onChange({ type: "preset", presetId: p.id })}
+            className={`h-14 rounded-2xl flex items-center justify-center text-2xl transition-all active:scale-95 ${
+              value?.type === "preset" && value.presetId === p.id
+                ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-gray-950 scale-105"
+                : "hover:scale-105"
+            }`}
+            style={{ background: p.bg }}>
+            {p.emoji}
+          </button>
+        ))}
+      </div>
+
+      {/* Upload from device */}
+      <button onClick={() => fileRef.current?.click()}
+        className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:border-blue-400 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 transition-all">
+        <Upload size={15} />
+        Upload from device
+      </button>
+      <input ref={fileRef} type="file" accept="image/*" hidden
+        onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+      <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center mt-1.5">
+        Optional · JPG, PNG, WebP · max 5 MB
+      </p>
+    </div>
+  );
+}
+
+/* ─── PIN row ────────────────────────────────────────────────── */
+/*
+  Each row = one PIN field.
+  Uses a real <input type="tel" inputMode="numeric"> that the
+  device keyboard opens. The 4 dot boxes are display-only.
+  Tapping the row focuses the input → keyboard appears.
+*/
+function PinRow({
+  label, value, onChange, match, autoFocus = false,
+}: {
+  label:      string;
+  value:      string;
+  onChange:   (v: string) => void;
+  match?:     boolean | null;  // null = not yet shown, true = match, false = no match
   autoFocus?: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [show, setShow] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (autoFocus) setTimeout(() => inputRef.current?.focus(), 100);
+    if (autoFocus) {
+      const t = setTimeout(() => ref.current?.focus(), 150);
+      return () => clearTimeout(t);
+    }
   }, [autoFocus]);
 
   return (
-    <div className="flex flex-col items-center gap-4" onClick={() => inputRef.current?.focus()}>
-      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{label}</p>
+    <div className="w-full" onClick={() => ref.current?.focus()}>
+      <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-3 text-center">
+        {label}
+      </p>
 
-      <div className="flex gap-4">
+      {/* 4 dot boxes */}
+      <div className="flex gap-3 justify-center mb-2">
         {[0,1,2,3].map(i => (
           <div key={i}
-            className={`w-14 h-14 rounded-2xl border-2 flex items-center justify-center transition-all cursor-pointer select-none ${
-              value[i]
+            className={`w-14 h-14 rounded-2xl border-2 flex items-center justify-center transition-all cursor-text select-none ${
+              value.length > i
                 ? "bg-gray-900 dark:bg-gray-100 border-gray-900 dark:border-gray-100"
                 : value.length === i
                 ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
                 : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
             }`}>
-            {value[i] && (
-              show
-                ? <span className="text-white dark:text-gray-900 font-bold text-lg">{value[i]}</span>
-                : <div className="w-3 h-3 rounded-full bg-white dark:bg-gray-900" />
+            {value.length > i && (
+              <div className="w-3 h-3 rounded-full bg-white dark:bg-gray-900" />
             )}
           </div>
         ))}
       </div>
 
-      {/* Hidden real input */}
+      {/* Hidden real input — device keyboard opens here */}
       <input
-        ref={inputRef}
+        ref={ref}
         type="tel"
         inputMode="numeric"
         pattern="[0-9]*"
         maxLength={4}
         value={value}
         onChange={e => onChange(e.target.value.replace(/\D/g, "").slice(0, 4))}
-        className="absolute opacity-0 w-0 h-0"
+        className="sr-only"
         autoComplete="off"
+        autoFocus={autoFocus}
       />
 
-      {/* Show/hide toggle */}
-      <button
-        type="button"
-        onClick={e => { e.stopPropagation(); setShow(!show); }}
-        className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors"
-      >
-        {show ? <EyeOff size={12} /> : <Eye size={12} />}
-        {show ? "Hide PIN" : "Show PIN"}
-      </button>
-
-      {/* Number pad */}
-      <div className="grid grid-cols-3 gap-3 w-full max-w-[280px]">
-        {[1,2,3,4,5,6,7,8,9,"",0,"⌫"].map((k, i) => (
-          <button
-            key={i}
-            type="button"
-            disabled={typeof k === "string" && k === ""}
-            onClick={() => {
-              if (k === "⌫") onChange(value.slice(0, -1));
-              else if (k !== "") onChange(value + String(k));
-              inputRef.current?.focus();
-            }}
-            className={`h-12 rounded-xl text-lg font-semibold transition-all active:scale-95 ${
-              k === "" ? "pointer-events-none" :
-              k === "⌫" ? "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700" :
-              "bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
-            }`}
-          >
-            {k}
-          </button>
-        ))}
-      </div>
-
-      {error && (
-        <div className="flex items-center gap-1.5 text-sm text-red-500 font-medium">
-          <AlertCircle size={14} />
-          {error}
+      {/* Live match feedback */}
+      {match !== null && match !== undefined && value.length === 4 && (
+        <div className={`flex items-center justify-center gap-1.5 text-xs font-semibold mt-2 transition-all ${
+          match ? "text-green-500" : "text-red-500"
+        }`}>
+          {match
+            ? <><Check size={13} /> PINs match</>
+            : <><AlertCircle size={13} /> PINs don't match</>}
         </div>
       )}
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
-   STEP INDICATOR
-══════════════════════════════════════════════════════════════ */
-function StepIndicator({ current, total }: { current: number; total: number }) {
+/* ─── Step indicator ─────────────────────────────────────────── */
+function Steps({ current, total }: { current: number; total: number }) {
   return (
     <div className="flex items-center gap-2">
       {Array.from({ length: total }).map((_, i) => (
         <React.Fragment key={i}>
           <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-            current > i + 1
-              ? "bg-green-500 text-white"
-              : current === i + 1
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600"
+            current > i + 1 ? "bg-green-500 text-white"
+              : current === i + 1 ? "bg-blue-600 text-white"
+              : "bg-gray-100 dark:bg-gray-800 text-gray-400"
           }`}>
             {current > i + 1 ? <Check size={12} /> : i + 1}
           </div>
           {i < total - 1 && (
-            <div className={`w-8 h-0.5 rounded transition-all ${
+            <div className={`flex-1 h-0.5 max-w-[40px] rounded transition-all ${
               current > i + 1 ? "bg-green-500" : "bg-gray-200 dark:bg-gray-700"
             }`} />
           )}
@@ -155,238 +238,276 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MAIN PAGE
+   MAIN
 ══════════════════════════════════════════════════════════════ */
 export function AnonPinPage() {
-  const navigate         = useNavigate();
-  const [searchParams]   = useSearchParams();
+  const navigate       = useNavigate();
+  const [params]       = useSearchParams();
   const { user, profile, refreshProfile } = useAuth();
 
-  const mode = (searchParams.get("mode") || "change") as "create" | "change";
-  const from = searchParams.get("from"); // e.g. "create-post"
+  const from     = params.get("from");
+  const isCreate = (params.get("mode") === "create") || !profile?.anon_pin_set;
+  const totalSteps = isCreate ? 3 : 4; // create: avatar→pin→confirm | change: verify→avatar→pin→confirm
 
-  /* Force create mode if PIN not set yet */
-  const isCreate = mode === "create" || !profile?.anon_pin_set;
+  /* State */
+  const [step,      setStep]     = useState(1);
+  const [avatar,    setAvatar]   = useState<AnonAvatar | null>(null);
+  const [current,   setCurrent]  = useState("");
+  const [newPin,    setNewPin]   = useState("");
+  const [confirm,   setConfirm]  = useState("");
+  const [error,     setError]    = useState("");
+  const [loading,   setLoading]  = useState(false);
+  const [locked,    setLocked]   = useState(false);
+  const [lockSecs,  setLockSecs] = useState(0);
+  const [done,      setDone]     = useState(false);
 
-  const totalSteps = isCreate ? 2 : 3;
-
-  const [step,       setStep]       = useState(1);
-  const [current,    setCurrent]    = useState(""); // existing PIN (change flow only)
-  const [newPin,     setNewPin]     = useState("");
-  const [confirm,    setConfirm]    = useState("");
-  const [error,      setError]      = useState("");
-  const [loading,    setLoading]    = useState(false);
-  const [locked,     setLocked]     = useState(false);
-  const [lockSecs,   setLockSecs]   = useState(0);
-  const [done,       setDone]       = useState(false);
-
-  /* Lock countdown */
+  /* Countdown */
   useEffect(() => {
     if (!locked) return;
     const iv = setInterval(() => {
-      setLockSecs(s => {
-        if (s <= 1) { setLocked(false); clearInterval(iv); return 0; }
-        return s - 1;
-      });
+      setLockSecs(s => { if (s <= 1) { setLocked(false); clearInterval(iv); return 0; } return s - 1; });
     }, 1000);
     return () => clearInterval(iv);
   }, [locked]);
 
-  const advance = async () => {
-    setError("");
-    setLoading(true);
+  /* Live match: only show when confirm has 4 digits */
+  const matchStatus: boolean | null = confirm.length === 4 ? (newPin === confirm) : null;
 
+  /* Upload anon avatar to storage */
+  const uploadAnonAvatar = async (): Promise<string | null> => {
+    if (!avatar) return null;
+    if (avatar.type === "preset") {
+      // Store as preset identifier, not an image URL
+      return `preset:${avatar.presetId}`;
+    }
+    if (avatar.type === "upload" && avatar.uploadFile && user?.id) {
+      try {
+        const ext  = avatar.uploadFile.name.split(".").pop() || "jpg";
+        const path = `${user.id}/anon_avatar.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from("avatars")
+          .upload(path, avatar.uploadFile, { upsert: true });
+        if (upErr) throw upErr;
+        const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+        return data.publicUrl;
+      } catch (e) {
+        console.error("Anon avatar upload failed:", e);
+        return null;
+      }
+    }
+    return null;
+  };
+
+  /* Save avatar to profile */
+  const saveAvatar = async () => {
+    if (!user?.id) return;
+    const url = await uploadAnonAvatar();
+    if (!url) return;
+    await supabase.from("profiles")
+      .update({ anon_avatar_url: url, updated_at: new Date().toISOString() })
+      .eq("id", user.id);
+  };
+
+  const goBack = () => {
+    if (from) navigate(`/${from}`, { replace: true });
+    else navigate(-1);
+  };
+
+  const advance = async () => {
+    setError(""); setLoading(true);
     try {
       if (isCreate) {
-        /* ── CREATE FLOW ── */
+        // Steps: 1=avatar, 2=new pin, 3=confirm
         if (step === 1) {
-          if (newPin.length !== 4) { setError("PIN must be exactly 4 digits"); setLoading(false); return; }
-          setStep(2);
+          setStep(2); // avatar is optional, always advance
         } else if (step === 2) {
-          if (newPin !== confirm) { setError("PINs don't match. Try again."); setConfirm(""); setLoading(false); return; }
-          /* Save new PIN */
+          if (newPin.length !== 4) { setError("Enter 4 digits"); setLoading(false); return; }
+          setStep(3);
+        } else if (step === 3) {
+          if (newPin !== confirm) { setError("PINs don't match"); setConfirm(""); setLoading(false); return; }
           await setAnonPin(newPin);
+          await saveAvatar();
           await refreshProfile();
           setDone(true);
-          setTimeout(() => {
-            navigate(from === "create-post" ? "/create-post" : "/settings", { replace: true });
-          }, 1200);
+          setTimeout(goBack, 1200);
         }
       } else {
-        /* ── CHANGE FLOW ── */
+        // Steps: 1=verify current, 2=avatar, 3=new pin, 4=confirm
         if (step === 1) {
-          if (current.length !== 4) { setError("Enter your 4-digit current PIN"); setLoading(false); return; }
-          /* Verify current PIN */
+          if (current.length !== 4) { setError("Enter your 4-digit PIN"); setLoading(false); return; }
           const result = await verifyAnonPin(current);
           if (!result.success) {
-            if (result.locked) {
-              setLocked(true); setLockSecs(1800);
-              setError("Too many attempts. Try again in 30 minutes.");
-            } else {
-              setError(`Incorrect PIN — ${result.attempts_left} attempts left`);
-              setCurrent("");
-            }
-            setLoading(false);
-            return;
+            if (result.locked) { setLocked(true); setLockSecs(1800); setError("Too many attempts. Locked 30 min."); }
+            else { setError(`Incorrect PIN — ${result.attempts_left} left`); setCurrent(""); }
+            setLoading(false); return;
           }
           setStep(2);
         } else if (step === 2) {
-          if (newPin.length !== 4) { setError("PIN must be exactly 4 digits"); setLoading(false); return; }
           setStep(3);
         } else if (step === 3) {
-          if (newPin !== confirm) { setError("PINs don't match. Try again."); setConfirm(""); setLoading(false); return; }
-          /* Change PIN */
+          if (newPin.length !== 4) { setError("Enter 4 digits"); setLoading(false); return; }
+          setStep(4);
+        } else if (step === 4) {
+          if (newPin !== confirm) { setError("PINs don't match"); setConfirm(""); setLoading(false); return; }
           await setAnonPin(newPin, current);
+          await saveAvatar();
           await refreshProfile();
           setDone(true);
-          setTimeout(() => {
-            navigate(from === "create-post" ? "/create-post" : "/settings", { replace: true });
-          }, 1200);
+          setTimeout(goBack, 1200);
         }
       }
-    } catch (err: any) {
-      setError(err?.message || "Something went wrong. Please try again.");
+    } catch (e: any) {
+      setError(e?.message || "Something went wrong");
     }
-
     setLoading(false);
   };
 
-  /* Current step value + setter */
-  const stepValue = isCreate
-    ? (step === 1 ? newPin : confirm)
-    : (step === 1 ? current : step === 2 ? newPin : confirm);
+  /* Auto-advance for PIN rows */
+  const pinStep   = isCreate ? 2 : 3;
+  const confStep  = isCreate ? 3 : 4;
+  const verifyStep = isCreate ? -1 : 1;
 
-  const stepSetter = isCreate
-    ? (step === 1 ? setNewPin : setConfirm)
-    : (step === 1 ? setCurrent : step === 2 ? setNewPin : setConfirm);
-
-  const stepLabel = isCreate
-    ? (step === 1 ? "Enter new PIN" : "Confirm PIN")
-    : (step === 1 ? "Enter current PIN" : step === 2 ? "Enter new PIN" : "Confirm new PIN");
-
-  const canAdvance = stepValue.length === 4 && !locked && !loading;
-
-  /* ── Auto-advance when 4 digits entered ── */
   useEffect(() => {
-    if (stepValue.length === 4 && !loading && !locked) {
-      const t = setTimeout(() => advance(), 300);
-      return () => clearTimeout(t);
+    if (step === verifyStep && current.length === 4) {
+      const t = setTimeout(advance, 300); return () => clearTimeout(t);
     }
-  }, [stepValue]);
+  }, [current]);
+
+  useEffect(() => {
+    if (step === pinStep && newPin.length === 4) {
+      const t = setTimeout(advance, 300); return () => clearTimeout(t);
+    }
+  }, [newPin]);
+
+  // Confirm: only auto-advance if they match
+  useEffect(() => {
+    if (step === confStep && confirm.length === 4 && newPin === confirm) {
+      const t = setTimeout(advance, 500); return () => clearTimeout(t);
+    }
+  }, [confirm]);
+
+  const anonUsername = profile?.anon_username || "anonymous";
 
   return (
     <AppShell>
       <div className="min-h-full bg-white dark:bg-gray-950">
-
-        {/* Header — no mt-14, no sticky top-14 */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 sticky top-0 bg-white dark:bg-gray-900 z-10">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 sticky top-0 z-10">
           <button onClick={() => navigate(-1)}
             className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <ArrowLeft size={20} className="text-gray-700 dark:text-gray-300" />
           </button>
-          <h1 className="font-bold text-gray-900 dark:text-white text-base">
-            {isCreate ? "Set Anon PIN" : "Change Anon PIN"}
+          <h1 className="font-bold text-gray-900 dark:text-white text-base flex-1">
+            {isCreate ? "Set Up Anonymous Profile" : "Update Anonymous Profile"}
           </h1>
         </div>
 
-        <div className="flex flex-col items-center px-6 py-10 gap-8 max-w-sm mx-auto">
+        <div className="max-w-sm mx-auto px-6 py-8 flex flex-col items-center gap-7">
 
-          {/* Icon */}
-          <div className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all ${
-            done ? "bg-green-500" : "bg-gray-900 dark:bg-gray-800"
-          }`}>
-            {done
-              ? <Check size={30} className="text-white" />
-              : <Shield size={28} className="text-gray-200" />
-            }
-          </div>
-
+          {/* Done */}
           {done ? (
-            /* ── Success state ── */
-            <div className="text-center">
-              <p className="font-bold text-gray-900 dark:text-white text-xl mb-1">
-                {isCreate ? "PIN Created!" : "PIN Updated!"}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {isCreate
-                  ? "Your anonymous PIN has been set. You can now post anonymously."
-                  : "Your anonymous PIN has been changed successfully."}
-              </p>
-            </div>
-          ) : (
             <>
-              {/* Step indicator */}
-              <StepIndicator current={step} total={totalSteps} />
-
-              {/* Description */}
+              <div className="w-16 h-16 rounded-2xl bg-green-500 flex items-center justify-center">
+                <Check size={32} className="text-white" />
+              </div>
               <div className="text-center">
-                <p className="font-bold text-gray-900 dark:text-white text-lg mb-1">
-                  {isCreate ? "Protect your anonymous identity" : "Change your anonymous PIN"}
+                <p className="font-bold text-gray-900 dark:text-white text-xl mb-1">
+                  {isCreate ? "Anonymous profile ready!" : "Updated!"}
                 </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {step === 1 && isCreate
-                    ? "Create a 4-digit PIN to post anonymously. Keep it safe."
-                    : step === 1
-                    ? "Verify your current PIN before setting a new one."
-                    : step === 2 && !isCreate
-                    ? "Enter your new 4-digit PIN."
-                    : "Re-enter your PIN to confirm."}
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  You can now post anonymously on Sphere.
                 </p>
               </div>
+            </>
+          ) : (
+            <>
+              {/* Icon */}
+              <div className="w-14 h-14 rounded-2xl bg-gray-900 dark:bg-gray-800 flex items-center justify-center">
+                <Shield size={26} className="text-gray-200" />
+              </div>
 
-              {/* Locked state */}
+              <Steps current={step} total={totalSteps} />
+
+              {/* Locked */}
               {locked && (
-                <div className="flex items-center gap-2 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900 rounded-xl px-4 py-3 text-sm text-orange-600 dark:text-orange-400">
-                  <Lock size={14} />
-                  <span>Locked — try again in <strong>{lockSecs}s</strong></span>
+                <div className="w-full flex items-center gap-2 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900 rounded-xl px-4 py-3 text-sm text-orange-600 dark:text-orange-400">
+                  <Lock size={14} className="shrink-0" />
+                  <span>Too many attempts — try again in <strong>{lockSecs}s</strong></span>
                 </div>
               )}
 
-              {/* PIN dots */}
-              {!locked && (
-                <PinDots
-                  key={step}
-                  label={stepLabel}
-                  value={stepValue}
-                  onChange={stepSetter}
-                  error={error}
-                  autoFocus={true}
-                />
-              )}
-
-              {/* Loading */}
-              {loading && (
-                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                  <Lock size={14} className="animate-pulse" /> Verifying…
-                </div>
-              )}
-
-              {/* ── Anon avatar — coming soon ── */}
-              {isCreate && step === 2 && (
-                <div className="w-full bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0">
-                    <ImageIcon size={16} className="text-gray-400 dark:text-gray-600" />
+              {/* STEP: Avatar picker (steps 1 for create, step 2 for change) */}
+              {((isCreate && step === 1) || (!isCreate && step === 2)) && (
+                <>
+                  <div className="text-center">
+                    <p className="font-bold text-gray-900 dark:text-white text-lg">Choose your anon avatar</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This is optional — skip to set your PIN</p>
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Anon Profile Picture</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-600 mt-0.5">
-                      Custom anonymous avatars — coming soon
-                    </p>
-                  </div>
-                  <span className="ml-auto shrink-0 text-[10px] font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-full">Soon</span>
-                </div>
+                  <AvatarPicker value={avatar} onChange={setAvatar} anonUsername={anonUsername} />
+                  <button onClick={advance}
+                    className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 active:scale-95 transition-all">
+                    {avatar ? "Save & Continue →" : "Skip & Continue →"}
+                  </button>
+                </>
               )}
 
-              {/* Manual continue button (fallback if auto-advance doesn't fire) */}
-              {stepValue.length === 4 && !loading && !locked && (
-                <button onClick={advance}
-                  className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
-                  {loading
-                    ? <><Lock size={14} className="animate-pulse" /> Verifying…</>
-                    : step === totalSteps
-                    ? <><Check size={14} /> {isCreate ? "Create PIN" : "Save New PIN"}</>
-                    : "Continue →"}
-                </button>
+              {/* STEP: Verify current PIN (change flow step 1) */}
+              {!isCreate && step === 1 && !locked && (
+                <>
+                  <div className="text-center">
+                    <p className="font-bold text-gray-900 dark:text-white text-lg">Verify current PIN</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Enter your existing 4-digit PIN</p>
+                  </div>
+                  <PinRow label="Current PIN" value={current} onChange={setCurrent} autoFocus={true} />
+                  {loading && <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 size={14} className="animate-spin" /> Verifying…</div>}
+                  {error && <p className="text-red-500 text-sm font-medium text-center">{error}</p>}
+                </>
+              )}
+
+              {/* STEP: Enter new PIN */}
+              {step === pinStep && (
+                <>
+                  <div className="text-center">
+                    <p className="font-bold text-gray-900 dark:text-white text-lg">Set your PIN</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Choose a 4-digit PIN to post anonymously</p>
+                  </div>
+                  <PinRow label="New PIN" value={newPin} onChange={setNewPin} autoFocus={true} />
+                  {loading && <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 size={14} className="animate-spin" /> Saving…</div>}
+                  {error && <p className="text-red-500 text-sm font-medium text-center">{error}</p>}
+                </>
+              )}
+
+              {/* STEP: Confirm PIN */}
+              {step === confStep && (
+                <>
+                  <div className="text-center">
+                    <p className="font-bold text-gray-900 dark:text-white text-lg">Confirm your PIN</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Re-enter to confirm</p>
+                  </div>
+                  <PinRow
+                    label="Confirm PIN"
+                    value={confirm}
+                    onChange={setConfirm}
+                    match={matchStatus}
+                    autoFocus={true}
+                  />
+                  {error && <p className="text-red-500 text-sm font-medium text-center">{error}</p>}
+                  {loading && <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 size={14} className="animate-spin" /> Setting PIN…</div>}
+                  {/* Manual button — active only when match */}
+                  <button
+                    onClick={advance}
+                    disabled={matchStatus !== true || loading}
+                    className={`w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                      matchStatus === true && !loading
+                        ? "bg-blue-600 text-white hover:bg-blue-700 active:scale-95"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed"
+                    }`}
+                  >
+                    {loading
+                      ? <><Loader2 size={14} className="animate-spin" /> Saving…</>
+                      : <><Check size={14} /> {isCreate ? "Create PIN" : "Save New PIN"}</>}
+                  </button>
+                </>
               )}
             </>
           )}

@@ -197,107 +197,121 @@ function AnonPinModal({ onSuccess, onCancel }: { onSuccess:()=>void; onCancel:()
 
 /* ══════════════════════════════════════════════════════════════
    MEDIA PREVIEW SLIDER MODAL
-══════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════════ */
+   function MediaSlider({ items, startIdx, onClose }: { items: AttachItem[]; startIdx: number; onClose: ()=>void }) {
+     const [idx,      setIdx]      = useState(startIdx);
+       const [dragging, setDragging] = useState(false);
+         const [dragOff,  setDragOff]  = useState(0);  // px offset while dragging
+           const touchStartX = useRef(0);
+             const touchStartT = useRef(0);
+               const trackRef    = useRef<HTMLDivElement>(null);
 
-import { useState } from "react";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
+                 const goTo = (i: number) => { setIdx(Math.max(0, Math.min(items.length-1, i))); setDragOff(0); };
+                   const prev = () => goTo(idx - 1);
+                     const next = () => goTo(idx + 1);
 
-function MediaSlider({
-  items,
-  startIdx,
-  onClose,
-}: {
-  items: AttachItem[];
-  startIdx: number;
-  onClose: () => void;
-}) {
-  const [idx, setIdx] = useState(startIdx);
+                       /* Touch: track start */
+                         const onTouchStart = (e: React.TouchEvent) => {
+                             touchStartX.current = e.touches[0].clientX;
+                                 touchStartT.current = Date.now();
+                                     setDragging(true);
+                                       };
 
-  const prev = () => {
-    setIdx((prev) => Math.max(prev - 1, 0));
-  };
+                                         /* Touch: live drag offset */
+                                           const onTouchMove = (e: React.TouchEvent) => {
+                                               if (!dragging) return;
+                                                   const dx = e.touches[0].clientX - touchStartX.current;
+                                                       // Resist at edges
+                                                           const atStart = idx === 0 && dx > 0;
+                                                               const atEnd   = idx === items.length - 1 && dx < 0;
+                                                                   setDragOff(atStart || atEnd ? dx * 0.25 : dx);
+                                                                     };
 
-  const next = () => {
-    setIdx((prev) => Math.min(prev + 1, items.length - 1));
-  };
+                                                                       /* Touch: release — decide swipe or snap back */
+                                                                         const onTouchEnd = (e: React.TouchEvent) => {
+                                                                             setDragging(false);
+                                                                                 const dx       = e.changedTouches[0].clientX - touchStartX.current;
+                                                                                     const dt       = Date.now() - touchStartT.current;
+                                                                                         const velocity = Math.abs(dx) / dt; // px/ms
+                                                                                             const w        = trackRef.current?.clientWidth || 300;
+                                                                                                 const threshold = velocity > 0.3 || Math.abs(dx) > w * 0.35;
+                                                                                                     if (threshold && dx < 0) next();
+                                                                                                         else if (threshold && dx > 0) prev();
+                                                                                                             else setDragOff(0);
+                                                                                                               };
 
-  return (
-    <div className="fixed inset-0 z-[200] bg-black flex items-center justify-center">
-      
-      {/* CLOSE */}
-      <button
-        onClick={onClose}
-        className="absolute top-4 right-4 z-20 w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center text-white"
-      >
-        <X size={20} />
-      </button>
+                                                                                                                 /* Translate: each slide = 100% width. Current slide + drag offset. */
+                                                                                                                   const translatePx = -(idx * 100); // percent
 
-      {/* COUNTER */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-black/60 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-full">
-        {idx + 1} / {items.length}
-      </div>
+                                                                                                                     return (
+                                                                                                                         <div className="fixed inset-0 z-[200] bg-black overflow-hidden">
+                                                                                                                               {/* Close */}
+                                                                                                                                     <button onClick={onClose}
+                                                                                                                                             className="absolute top-4 right-4 z-20 w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center text-white">
+                                                                                                                                                     <X size={20}/>
+                                                                                                                                                           </button>
+                                                                                                                                                                 {/* Counter */}
+                                                                                                                                                                       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-black/60 backdrop-blur-sm text-white text-xs font-bold px-3 py-1.5 rounded-full">
+                                                                                                                                                                               {idx+1} / {items.length}
+                                                                                                                                                                                     </div>
 
-      {/* MEDIA */}
-      <div className="w-full h-full flex items-center justify-center px-6">
-        {items[idx].type === "video" ? (
-          <video
-            src={items[idx].url}
-            controls
-            autoPlay
-            className="max-w-full max-h-full object-contain rounded-xl"
-          />
-        ) : (
-          <img
-            src={items[idx].url}
-            alt=""
-            className="max-w-full max-h-full object-contain rounded-xl select-none"
-          />
-        )}
-      </div>
+                                                                                                                                                                                           {/* Track — slides laid out horizontally */}
+                                                                                                                                                                                                 <div ref={trackRef}
+                                                                                                                                                                                                         className="absolute inset-0 flex items-center"
+                                                                                                                                                                                                                 style={{
+                                                                                                                                                                                                                           transform: `translateX(calc(${translatePx}% + ${dragOff}px))`,
+                                                                                                                                                                                                                                     transition: dragging ? "none" : "transform 320ms cubic-bezier(0.25,0.46,0.45,0.94)",
+                                                                                                                                                                                                                                               willChange: "transform",
+                                                                                                                                                                                                                                                         width: `${items.length * 100}%`,
+                                                                                                                                                                                                                                                                 }}
+                                                                                                                                                                                                                                                                         onTouchStart={onTouchStart}
+                                                                                                                                                                                                                                                                                 onTouchMove={onTouchMove}
+                                                                                                                                                                                                                                                                                         onTouchEnd={onTouchEnd}
+                                                                                                                                                                                                                                                                                               >
+                                                                                                                                                                                                                                                                                                       {items.map((item, i) => (
+                                                                                                                                                                                                                                                                                                                 <div key={i} className="flex items-center justify-center"
+                                                                                                                                                                                                                                                                                                                             style={{ width: `${100 / items.length}%`, height: "100vh", padding: "0 48px" }}>
+                                                                                                                                                                                                                                                                                                                                         {item.type === "video"
+                                                                                                                                                                                                                                                                                                                                                       ? <video src={item.url} controls={i === idx} autoPlay={i === idx}
+                                                                                                                                                                                                                                                                                                                                                                         className="max-w-full max-h-full object-contain rounded-xl"/>
+                                                                                                                                                                                                                                                                                                                                                                                       : <img src={item.url} alt="" className="max-w-full max-h-full object-contain rounded-xl
+                                                                                                                                                                                                                                                                                                                                                                                                         select-none" draggable={false}/>}
+                                                                                                                                                                                                                                                                                                                                                                                                                   </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                           ))}
+                                                                                                                                                                                                                                                                                                                                                                                                                                 </div>
 
-      {/* LEFT ARROW (NOW EVERYWHERE) */}
-      {idx > 0 && (
-        <button
-          onClick={prev}
-          className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/80 transition-all"
-        >
-          <ChevronLeft size={26} />
-        </button>
-      )}
+                                                                                                                                                                                                                                                                                                                                                                                                                                       {/* Arrow buttons — only on desktop */}
+                                                                                                                                                                                                                                                                                                                                                                                                                                             {idx > 0 && (
+                                                                                                                                                                                                                                                                                                                                                                                                                                                     <button onClick={prev}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                               className="hidden lg:flex absolute left-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-black/60 backdrop-blur-sm items-center justify-center text-white hover:bg-black/80 transition-colors">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                         <ChevronLeft size={22}/>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 </button>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       )}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             {idx < items.length - 1 && (
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     <button onClick={next}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               className="hidden lg:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full bg-black/60 backdrop-blur-sm items-center justify-center text-white hover:bg-black/80 transition-colors">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         <ChevronRight size={22}/>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 </button>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       )}
 
-      {/* RIGHT ARROW (NOW EVERYWHERE) */}
-      {idx < items.length - 1 && (
-        <button
-          onClick={next}
-          className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/80 transition-all"
-        >
-          <ChevronRight size={26} />
-        </button>
-      )}
-
-      {/* DOTS */}
-      {items.length > 1 && (
-        <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 flex gap-2">
-          {items.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => setIdx(i)}
-              className="rounded-full transition-all duration-300"
-              style={{
-                width: i === idx ? 18 : 8,
-                height: 8,
-                background:
-                  i === idx ? "white" : "rgba(255,255,255,0.4)",
-              }}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default MediaSlider;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             {/* Dots */}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   {items.length > 1 && (
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 flex gap-1.5 items-center">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     {items.map((_,i) => (
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 <button key={i} onClick={()=>goTo(i)}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               className="rounded-full transition-all duration-300"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             style={{
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             width:  i === idx ? 20 : 7,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             height: 7,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             background: i === idx ? "white" : "rgba(255,255,255,0.4)",
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           }}/>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     ))}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   )}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         );
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
 /* ══════════════════════════════════════════════════════════════
    SMART MEDIA GRID
 ══════════════════════════════════════════════════════════════ */

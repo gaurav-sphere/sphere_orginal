@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
 
-
 const supabaseUrl  = import.meta.env.VITE_SUPABASE_URL  as string
 const supabaseKey  = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 
@@ -59,10 +58,20 @@ export async function deleteFile(
   if (error) throw error
 }
 
-/* ─── Edge Function helpers ───────────────────────────────────────────────── */
+/* ─── Anon PIN helpers (via Postgres RPC — no edge functions needed) ────── */
+/*
+  IMPORTANT: These functions now use Postgres RPC functions defined in
+  SPHERE_FIXES.sql. Run that file in Supabase SQL Editor first.
 
-/** Verify user's anonymous PIN against server-side bcrypt hash.
- *  Returns { success, locked, attempts_left }
+  Previously used edge functions (/functions/v1/set-anon-pin and
+  /functions/v1/verify-anon-pin) which caused "Failed to fetch" errors
+  when not deployed. RPC functions run inside the DB — always available.
+*/
+
+/**
+ * Verify user's anonymous PIN.
+ * Uses Postgres RPC function `verify_anon_pin` with bcrypt via pgcrypto.
+ * Returns { success, locked, attempts_left, message? }
  */
 export async function verifyAnonPin(pin: string): Promise<{
   success: boolean
@@ -70,47 +79,40 @@ export async function verifyAnonPin(pin: string): Promise<{
   attempts_left: number
   message?: string
 }> {
-  const session = await supabase.auth.getSession()
-  const token   = session.data.session?.access_token
-
-  if (!token) throw new Error('Not authenticated')
-
-  const res = await fetch(`${supabaseUrl}/functions/v1/verify-anon-pin`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({ pin }),
+  const { data, error } = await supabase.rpc('verify_anon_pin', {
+    input_pin: pin,
   })
 
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.error || 'PIN verification failed')
+  if (error) {
+    console.error('[verifyAnonPin] RPC error:', error)
+    throw new Error(error.message || 'PIN verification failed')
   }
 
-  return res.json()
+  // data is already the jsonb object returned by the function
+  return data as { success: boolean; locked: boolean; attempts_left: number; message?: string }
 }
 
-/** Set or change anon PIN */
+/**
+ * Set or change anon PIN.
+ * Uses Postgres RPC function `set_anon_pin` with bcrypt via pgcrypto.
+ * - First time: call setAnonPin(newPin)
+ * - Change:     call setAnonPin(newPin, currentPin)
+ */
 export async function setAnonPin(pin: string, currentPin?: string): Promise<void> {
-  const session = await supabase.auth.getSession()
-  const token   = session.data.session?.access_token
-
-  if (!token) throw new Error('Not authenticated')
-
-  const res = await fetch(`${supabaseUrl}/functions/v1/set-anon-pin`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-    body: JSON.stringify({ pin, current_pin: currentPin }),
+  const { data, error } = await supabase.rpc('set_anon_pin', {
+    new_pin:     pin,
+    current_pin: currentPin ?? null,
   })
 
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.error || 'Failed to set PIN')
+  if (error) {
+    console.error('[setAnonPin] RPC error:', error)
+    throw new Error(error.message || 'Failed to set PIN')
+  }
+
+  // The RPC returns { success: bool, error?: string }
+  const result = data as { success: boolean; error?: string }
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to set PIN')
   }
 }
 
