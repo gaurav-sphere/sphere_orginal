@@ -1,7 +1,7 @@
 import React, {
   useState, useRef, useEffect, useCallback,
 } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import {
   ArrowLeft, Search, Send, MoreHorizontal, ImagePlus,
   Check, CheckCheck, X, Reply, Trash2, Settings,
@@ -259,8 +259,33 @@ function TypingIndicator({ name }: { name: string }) {
 ══════════════════════════════════════════════════════════════ */
 export function MessagesPage() {
   const navigate            = useNavigate();
+  const { username: urlUsername } = useParams<{ username?: string }>();
   const { user, profile }   = useAuth();
   const userId              = user?.id || "";
+
+  /* ── Auto-open conversation if /messages/:username ── */
+  useEffect(() => {
+    if (!urlUsername || !userId) return;
+    (async () => {
+      // Look up the other user by username
+      const { data: other } = await supabase.from("profiles")
+        .select("id").eq("username", urlUsername).single();
+      if (!other?.id) return;
+
+      // Find or create conversation
+      const { data: ex } = await supabase.from("conversations")
+        .select("id,participant_1,participant_2,last_message,last_message_at,unread_count_1,unread_count_2,cleared_by_1,cleared_by_2")
+        .or(`and(participant_1.eq.${userId},participant_2.eq.${other.id}),and(participant_1.eq.${other.id},participant_2.eq.${userId})`)
+        .maybeSingle();
+
+      if (ex) {
+        // conversations will load and we'll find it
+        return;
+      }
+      // Create new conversation
+      await supabase.from("conversations").insert({ participant_1: userId, participant_2: other.id });
+    })();
+  }, [urlUsername, userId]);
 
   /* List state */
   const [conversations,  setConversations]  = useState<Conversation[]>([]);
@@ -332,7 +357,13 @@ export function MessagesPage() {
 
     setConversations(mapped);
     setConvLoading(false);
-  }, [userId]);
+
+    /* Auto-open the conversation if /messages/:username */
+    if (urlUsername) {
+      const target = mapped.find(c => c.other.username === urlUsername);
+      if (target) openConversation(target);
+    }
+  }, [userId, urlUsername]);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router";
 import {
   Home, Search, PenLine, MessageSquare, User,
   Bell, HelpCircle, Settings, LogOut, Shield,
-  Moon, Sun, ChevronRight,
+  Moon, Sun, ChevronRight, Lock, EyeOff, Eye, Loader2,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -11,9 +11,7 @@ import { supabase } from "../lib/supabase";
 import { LoginPromotionPanel } from "./LoginPromotionPanel";
 
 /* ══════════════════════════════════════════════════════════════
-   THEME TRANSITION CSS — injected once.
-   Same pure-CSS approach as GuestShell (proven to work).
-   380ms smooth transition on bg/text/border — no JS animation needed.
+   THEME TRANSITION CSS — injected once
 ══════════════════════════════════════════════════════════════ */
 let themeStyleInjected = false;
 function injectThemeCSS() {
@@ -49,32 +47,115 @@ interface Notification {
 interface AppShellProps { children: React.ReactNode }
 
 /* ══════════════════════════════════════════════════════════════
-   PROFILE AVATAR — with onError fallback.
-   Prevents the gray broken-image box when avatar_url is set
-   but the image fails to load. Shows initial letter instead.
+   PROFILE AVATAR — onError fallback prevents broken-image box
 ══════════════════════════════════════════════════════════════ */
 function ProfileAvatar({ src, name, size }: { src?: string | null; name: string; size: number }) {
   const [imgErr, setImgErr] = useState(false);
   const initial = (name || "U")[0].toUpperCase();
   if (src && !imgErr) {
     return (
-      <img
-        src={src}
-        alt={name}
-        onError={() => setImgErr(true)}
+      <img src={src} alt={name} onError={() => setImgErr(true)}
         className="rounded-full object-cover shrink-0"
-        style={{ width: size, height: size }}
-      />
+        style={{ width: size, height: size }} />
     );
   }
   return (
-    <div
-      className="rounded-full bg-blue-600 flex items-center justify-center shrink-0 text-white font-bold"
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
-    >
+    <div className="rounded-full bg-blue-600 flex items-center justify-center shrink-0 text-white font-bold"
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}>
       {initial}
     </div>
   );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SETTINGS RE-AUTH MODAL
+   Called from AppShell when user clicks Settings and session
+   has expired or visit quota is exhausted.
+══════════════════════════════════════════════════════════════ */
+function SettingsAuthModal({ onSuccess, onClose }: {
+  onSuccess: () => void;
+  onClose:   () => void;
+}) {
+  const { user }            = useAuth();
+  const [pass, setPass]     = useState("");
+  const [show, setShow]     = useState(false);
+  const [error, setError]   = useState("");
+  const [loading, setLoad]  = useState(false);
+
+  const verify = async () => {
+    if (!pass.trim() || !user?.email) return;
+    setLoad(true); setError("");
+    const { error: err } = await supabase.auth.signInWithPassword({
+      email: user.email, password: pass,
+    });
+    setLoad(false);
+    if (err) { setError("Incorrect password. Try again."); setPass(""); return; }
+    onSuccess();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-end lg:items-center justify-center">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm mx-auto bg-white dark:bg-gray-900 rounded-t-3xl lg:rounded-3xl p-6 shadow-2xl">
+        <div className="flex flex-col items-center gap-3 mb-5">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center">
+            <Lock size={22} className="text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="text-center">
+            <h2 className="font-bold text-gray-900 dark:text-white">Confirm it's you</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Enter your password to access Settings</p>
+          </div>
+        </div>
+        <div className="relative mb-3">
+          <input
+            type={show ? "text" : "password"}
+            value={pass}
+            onChange={e => setPass(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && verify()}
+            placeholder="Your password"
+            autoFocus
+            className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-900 pr-10 text-gray-900 dark:text-white transition-all"
+          />
+          <button onClick={() => setShow(s => !s)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+            {show ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
+        {error && <p className="text-red-500 text-xs mb-3 font-medium">{error}</p>}
+        <button onClick={verify} disabled={loading || !pass.trim()}
+          className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 disabled:opacity-60 transition-all flex items-center justify-center gap-2">
+          {loading ? <><Loader2 size={14} className="animate-spin" /> Verifying…</> : "Confirm"}
+        </button>
+        <button onClick={onClose}
+          className="mt-3 w-full py-2 text-sm text-gray-500 dark:text-gray-400 font-semibold">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SESSION HELPERS
+   Logic: verify once → 5 free visits → verify again → 5 more → …
+   Key stored in sessionStorage (clears on tab close / hard refresh).
+══════════════════════════════════════════════════════════════ */
+const SESS_KEY    = "sphere_settings_v";
+const FREE_VISITS = 5;
+
+function getSettingsSession(): { ok?: boolean; visits?: number } {
+  try { return JSON.parse(sessionStorage.getItem(SESS_KEY) || "{}"); } catch { return {}; }
+}
+function settingsIsAllowed(): boolean {
+  const s = getSettingsSession();
+  return !!s.ok && (s.visits || 0) < FREE_VISITS;
+}
+function incrementSettingsVisit() {
+  const s = getSettingsSession();
+  sessionStorage.setItem(SESS_KEY, JSON.stringify({ ok: true, visits: (s.visits || 0) + 1 }));
+}
+function grantSettingsAccess() {
+  sessionStorage.setItem(SESS_KEY, JSON.stringify({ ok: true, visits: 1 }));
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -85,14 +166,13 @@ export function AppShell({ children }: AppShellProps) {
   const { pathname } = useLocation();
   const { user, profile, signOut } = useAuth();
 
-  /* ── useTheme called unconditionally at top level — this is the dark mode fix.
-     Previous code wrapped it in try/catch which violates React hooks rules and
-     prevents the theme state from being tracked properly. ── */
+  /* useTheme called unconditionally at top level — hooks rule compliance */
   const { isDark, toggleTheme } = useTheme();
 
-  const [showNotif,     setShowNotif]     = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unread,        setUnread]        = useState(0);
+  const [showNotif,       setShowNotif]       = useState(false);
+  const [notifications,   setNotifications]   = useState<Notification[]>([]);
+  const [unread,          setUnread]          = useState(0);
+  const [showSettingsAuth, setShowSettingsAuth] = useState(false);
 
   const mainRef     = useRef<HTMLDivElement>(null);
   const lastScrollY = useRef(0);
@@ -114,21 +194,20 @@ export function AppShell({ children }: AppShellProps) {
 
   /* Mobile: header shows, bottom nav hides */
   const hideNavOnly =
-    pathname === "/profile"                   ||
-    pathname === "/notifications"             ||
-    pathname.startsWith("/user/")             ||
-    pathname.startsWith("/profile/followers") ||
-    pathname === "/feed/search";
+    pathname === "/profile"                        ||
+    pathname.startsWith("/profile/")               ||  /* /profile/:username, /profile/followers/... */
+    pathname === "/notifications"                  ||
+    pathname.startsWith("/user/");
 
   const showBottomNav = !isFullScreen && !hideNavOnly;
 
-  /* Header never scroll-hides on profile + notifications */
+  /* Header never scroll-hides on these pages */
   const headerAlwaysVisible =
-    pathname === "/profile" ||
-    pathname === "/notifications";
+    pathname === "/profile"          ||
+    pathname === "/notifications"    ||
+    /^\/profile\/[^/]+$/.test(pathname); /* /profile/:username */
 
-  /* Promo panel: desktop only, /feed + /feed/search ONLY.
-     All other pages (including /notifications) get full width. */
+  /* Promo panel: desktop, /feed + /feed/search only */
   const showPromoPanel =
     pathname === "/feed" ||
     pathname === "/feed/search";
@@ -155,7 +234,7 @@ export function AppShell({ children }: AppShellProps) {
     return () => el.removeEventListener("scroll", handler);
   }, [pathname, isFullScreen, headerAlwaysVisible]);
 
-  /* Reset header to visible on every route change */
+  /* Reset header on route change */
   useEffect(() => {
     setHeaderVisible(true);
     lastScrollY.current = 0;
@@ -219,9 +298,20 @@ export function AppShell({ children }: AppShellProps) {
     window.location.replace("/");
   };
 
-  /* Settings: navigate directly — verification removed from here,
-     it lives on the Settings page itself as requested. */
-  const handleSettingsClick = () => navigate("/settings");
+  /*
+    Settings click — 5-visit session logic:
+    • Not verified yet → show password modal
+    • Verified + visits < 5 → go straight in, increment counter
+    • Verified + visits >= 5 → ask again (counter resets on next success)
+  */
+  const handleSettingsClick = () => {
+    if (settingsIsAllowed()) {
+      incrementSettingsVisit();
+      navigate("/settings");
+      return;
+    }
+    setShowSettingsAuth(true);
+  };
 
   const formatNotif = (n: Notification): string => {
     const who = n.actor?.name || "Someone";
@@ -239,8 +329,8 @@ export function AppShell({ children }: AppShellProps) {
 
   const handleNotifTap = (n: Notification) => {
     setShowNotif(false);
-    if (n.post_id)                                     navigate(`/quote/${n.post_id}`);
-    else if (n.type === "follow" && n.actor?.username) navigate(`/user/${n.actor.username}`);
+    if (n.post_id)                                       navigate(`/quote/${n.post_id}`);
+    else if (n.type === "follow" && n.actor?.username)   navigate(`/profile/${n.actor.username}`);
   };
 
   const isActive = (path: string) =>
@@ -296,7 +386,6 @@ export function AppShell({ children }: AppShellProps) {
       {/* ═══ MOBILE HEADER ═══
           In normal flex flow (NOT fixed position).
           Uses max-height collapse — no paddingTop, no white-gap bug.
-          headerAlwaysVisible = true on /profile + /notifications.
       ═══ */}
       <div
         className="lg:hidden overflow-hidden shrink-0 bg-white dark:bg-gray-900"
@@ -357,14 +446,13 @@ export function AppShell({ children }: AppShellProps) {
               </button>
             ))}
 
-            {/* ── Profile card — 36px avatar with onError fallback ── */}
+            {/* Profile card */}
             {profile && (
               <>
                 <div className="h-px bg-gray-100 dark:bg-gray-800 my-2" />
                 <button
                   onClick={() => navigate("/profile")}
-                  className="w-full px-3 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all group"
-                >
+                  className="w-full px-3 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all group">
                   <div className="flex items-center gap-3">
                     <ProfileAvatar src={profile.avatar_url} name={profile.name} size={36} />
                     <div className="flex-1 min-w-0 text-left">
@@ -498,6 +586,18 @@ export function AppShell({ children }: AppShellProps) {
             </div>
           </div>
         </>
+      )}
+
+      {/* ═══ SETTINGS RE-AUTH MODAL ═══ */}
+      {showSettingsAuth && (
+        <SettingsAuthModal
+          onSuccess={() => {
+            grantSettingsAccess();   /* sets visits=1, ok=true */
+            setShowSettingsAuth(false);
+            navigate("/settings");
+          }}
+          onClose={() => setShowSettingsAuth(false)}
+        />
       )}
     </div>
   );
